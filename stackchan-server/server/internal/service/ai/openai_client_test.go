@@ -45,6 +45,39 @@ func TestCompatibleChatLimitsOutputTokens(t *testing.T) {
 	}
 }
 
+func TestCompatibleChatRetriesPromptLimitWithCurrentTurnOnly(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if requests == 1 {
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error":{"message":"Prompt tokens limit exceeded: 4000 > 2500"}}`))
+			return
+		}
+		if len(body.Messages) != 2 || body.Messages[0].Role != "system" || body.Messages[1].Content != "최신 질문" {
+			t.Fatalf("retry messages=%#v", body.Messages)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"됐어, 교수님!"}}]}`))
+	}))
+	defer server.Close()
+
+	client := newOpenAIClient(server.URL, "test-key", "test-model", "", "", "", "", "", "persona")
+	reply, err := client.Chat(context.Background(), []chatMessage{
+		{Role: "user", Content: "오래된 질문"},
+		{Role: "assistant", Content: "오래된 답변"},
+		{Role: "user", Content: "최신 질문"},
+	}, nil, nil)
+	if err != nil || reply != "됐어, 교수님!" || requests != 2 {
+		t.Fatalf("reply=%q requests=%d err=%v", reply, requests, err)
+	}
+}
+
 func TestSpeechRequestIncludesVoiceInstructions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any

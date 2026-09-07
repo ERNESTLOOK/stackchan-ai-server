@@ -210,6 +210,11 @@ func (c *openAIClient) Chat(ctx context.Context, history []chatMessage, ha *haWS
 		})
 		data, err := c.doRequest(ctx, "POST", "/v1/chat/completions", bytes.NewReader(body), "application/json")
 		if err != nil {
+			if trimmed, dropped := trimOlderConversationContext(msgs, err); dropped > 0 {
+				g.Log().Infof(logCtx, "[COMPAT] provider prompt limit; retrying with current turn only dropped_messages=%d", dropped)
+				msgs = trimmed
+				continue
+			}
 			return "", err
 		}
 
@@ -254,6 +259,26 @@ func (c *openAIClient) Chat(ctx context.Context, history []chatMessage, ha *haWS
 			})
 		}
 	}
+}
+
+func trimOlderConversationContext(messages []chatMessage, requestErr error) ([]chatMessage, int) {
+	if requestErr == nil || !strings.Contains(strings.ToLower(requestErr.Error()), "prompt tokens limit exceeded") || len(messages) < 3 {
+		return messages, 0
+	}
+	latestUser := -1
+	for index := len(messages) - 1; index > 0; index-- {
+		if messages[index].Role == "user" {
+			latestUser = index
+			break
+		}
+	}
+	if latestUser <= 1 {
+		return messages, 0
+	}
+	trimmed := make([]chatMessage, 0, 1+len(messages)-latestUser)
+	trimmed = append(trimmed, messages[0])
+	trimmed = append(trimmed, messages[latestUser:]...)
+	return trimmed, latestUser - 1
 }
 
 // Speak sends text to OpenAI TTS and returns 24kHz mono int16 PCM.
