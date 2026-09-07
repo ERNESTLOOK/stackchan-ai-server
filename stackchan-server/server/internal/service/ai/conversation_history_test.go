@@ -194,6 +194,7 @@ func TestConversationSettingsRejectInvalidRanges(t *testing.T) {
 		"face_contact_interval_seconds":      "9",
 		"face_contact_interval_seconds_hi":   "3601",
 		"autonomous_actions_enabled":         "yes",
+		"stackchan_emotion_led_enabled":      "yes",
 		"autonomous_action_interval_seconds": "4",
 	} {
 		if key == "face_contact_interval_seconds_hi" {
@@ -203,7 +204,7 @@ func TestConversationSettingsRejectInvalidRanges(t *testing.T) {
 			t.Errorf("accepted invalid %s", key)
 		}
 	}
-	if settingsUpdateError(map[string]string{"conversation_idle_seconds": "0", "conversation_context_messages": "0", "face_contact_interval_seconds": "45", "face_contact_enabled": "true", "autonomous_actions_enabled": "true", "autonomous_action_interval_seconds": "18"}) != "" {
+	if settingsUpdateError(map[string]string{"conversation_idle_seconds": "0", "conversation_context_messages": "0", "face_contact_interval_seconds": "45", "face_contact_enabled": "true", "autonomous_actions_enabled": "true", "autonomous_action_interval_seconds": "18", "stackchan_emotion_led_enabled": "true"}) != "" {
 		t.Fatal("zero should disable timeout or context")
 	}
 }

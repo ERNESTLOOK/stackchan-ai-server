@@ -54,6 +54,9 @@ const (
 const (
 	loudStartlePeakThreshold = 22000
 	loudStartleRMSThreshold  = int64(9000 * 9000)
+	emotionLEDGradientSteps  = 4
+	emotionLEDSleepAfter     = 60 * time.Second
+	emotionLEDHold           = 24 * time.Second
 )
 
 type deviceReaction struct {
@@ -63,6 +66,11 @@ type deviceReaction struct {
 	Blue       int
 	LEDPattern string
 	LEDSpeed   time.Duration
+}
+
+type emotionLEDProfile struct {
+	Stops    [][3]int
+	Interval time.Duration
 }
 
 type wsSession struct {
@@ -86,26 +94,29 @@ type wsSession struct {
 	// A nil entry is a sentinel meaning "response ended — send tts:stop".
 	frameQueue chan []byte
 
-	writeMu           sync.Mutex // serialises WebSocket writes
-	providerClosed    int32      // atomic: 1 when OnClose triggered conn.Close()
-	listenStopped     time.Time  // latency baseline for the current user turn
-	firstAudioLogged  int32
-	inputAudioLogged  int32
-	inputDecodeErrors int32
-	inputFrames       int
-	inputSamples      int
-	serverVAD         bool
-	vadHeardSpeech    bool
-	vadSilenceSamples int
-	deviceMCP         *deviceMCPClient
-	responseEmotion   string
-	lastFaceContact   time.Time
-	faceContactBusy   bool
-	autonomousBusy    bool
-	autonomousCount   int64
-	loudStartleBusy   bool
-	lastLoudStartle   time.Time
-	ledGeneration     int64
+	writeMu            sync.Mutex // serialises WebSocket writes
+	providerClosed     int32      // atomic: 1 when OnClose triggered conn.Close()
+	listenStopped      time.Time  // latency baseline for the current user turn
+	firstAudioLogged   int32
+	inputAudioLogged   int32
+	inputDecodeErrors  int32
+	inputFrames        int
+	inputSamples       int
+	serverVAD          bool
+	vadHeardSpeech     bool
+	vadSilenceSamples  int
+	deviceMCP          *deviceMCPClient
+	responseEmotion    string
+	responseLEDEmotion string
+	responseEmotionAt  time.Time
+	lastInteraction    time.Time
+	lastFaceContact    time.Time
+	faceContactBusy    bool
+	autonomousBusy     bool
+	autonomousCount    int64
+	loudStartleBusy    bool
+	lastLoudStartle    time.Time
+	ledGeneration      int64
 }
 
 // HandleWS upgrades the connection and runs a Xiaozhi v3 protocol session
@@ -146,14 +157,17 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s := &wsSession{
-		conn:             conn,
-		deviceID:         deviceID,
-		sessionID:        uuid.New().String(),
-		activity:         newConversationActivity(time.Duration(conversationIdleSeconds(ctx))*time.Second, time.Now()),
-		opusDec:          opusDec,
-		frameQueue:       make(chan []byte, frameQueueSize),
-		prebufferFrames:  max(0, aiInt(ctx, "audio_prebuffer_ms", 300)/frameDurationMs),
-		prebufferMaxWait: time.Duration(max(0, aiInt(ctx, "audio_prebuffer_max_wait_ms", 900))) * time.Millisecond,
+		conn:               conn,
+		deviceID:           deviceID,
+		sessionID:          uuid.New().String(),
+		activity:           newConversationActivity(time.Duration(conversationIdleSeconds(ctx))*time.Second, time.Now()),
+		opusDec:            opusDec,
+		frameQueue:         make(chan []byte, frameQueueSize),
+		prebufferFrames:    max(0, aiInt(ctx, "audio_prebuffer_ms", 300)/frameDurationMs),
+		prebufferMaxWait:   time.Duration(max(0, aiInt(ctx, "audio_prebuffer_max_wait_ms", 900))) * time.Millisecond,
+		responseEmotion:    "neutral",
+		responseLEDEmotion: "neutral",
+		lastInteraction:    time.Now(),
 	}
 	s.deviceMCP = newDeviceMCPClient(s.sessionID, s.sendJSON)
 
@@ -185,6 +199,8 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 			g.Log().Infof(ctx, "[WS] device=%s LLM: %q", deviceID, text)
 			s.mu.Lock()
 			s.responseEmotion = emotionForText(text)
+			s.responseLEDEmotion = emotionLEDForText(text)
+			s.responseEmotionAt = time.Now()
 			s.mu.Unlock()
 		},
 
@@ -305,6 +321,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 	go s.pingLoop(ctx)
 	go s.idleLoop(ctx)
 	go s.autonomousLoop(ctx)
+	go s.emotionLEDLoop(ctx)
 	s.run(ctx)
 	cancel()
 
@@ -339,6 +356,7 @@ func (s *wsSession) pacingLoop(ctx context.Context) {
 					_ = s.sendJSON(map[string]any{"type": "tts", "state": "stop"})
 					s.mu.Lock()
 					s.playbackStarted = false
+					s.lastInteraction = time.Now()
 					s.mu.Unlock()
 					s.activity.playbackDone(time.Now())
 					if aware, ok := s.rt.(PlaybackStateAware); ok {
@@ -590,6 +608,139 @@ func emotionForText(text string) string {
 	return "neutral"
 }
 
+func emotionLEDForText(text string) string {
+	text = strings.ToLower(text)
+	for _, word := range []string{"졸려", "졸리", "피곤", "하품", "잘 자", "잠이"} {
+		if strings.Contains(text, word) {
+			return "sleepy"
+		}
+	}
+	for _, word := range []string{"부끄", "쑥스", "헤헤", "칭찬"} {
+		if strings.Contains(text, word) {
+			return "shy"
+		}
+	}
+	for _, word := range []string{"흥", "삐졌", "삐질", "투정", "몰라"} {
+		if strings.Contains(text, word) {
+			return "pouty"
+		}
+	}
+	emotion := emotionForText(text)
+	if emotion == "doubtful" {
+		return "curious"
+	}
+	return emotion
+}
+
+func emotionLEDProfileFor(emotion string) emotionLEDProfile {
+	switch emotion {
+	case "surprised":
+		return emotionLEDProfile{Stops: [][3]int{{35, 8, 65}, {168, 96, 160}, {80, 34, 168}, {168, 48, 112}}, Interval: 250 * time.Millisecond}
+	case "angry":
+		return emotionLEDProfile{Stops: [][3]int{{35, 0, 2}, {168, 0, 15}, {75, 3, 0}, {168, 28, 0}}, Interval: 280 * time.Millisecond}
+	case "happy", "laughing":
+		return emotionLEDProfile{Stops: [][3]int{{50, 8, 35}, {168, 34, 118}, {168, 105, 148}, {105, 22, 92}}, Interval: 340 * time.Millisecond}
+	case "shy":
+		return emotionLEDProfile{Stops: [][3]int{{32, 5, 20}, {148, 42, 98}, {168, 92, 126}, {72, 18, 55}}, Interval: 520 * time.Millisecond}
+	case "pouty":
+		return emotionLEDProfile{Stops: [][3]int{{38, 0, 12}, {168, 12, 48}, {88, 2, 38}, {145, 25, 80}}, Interval: 420 * time.Millisecond}
+	case "sad":
+		return emotionLEDProfile{Stops: [][3]int{{4, 8, 25}, {12, 32, 96}, {24, 58, 168}, {8, 22, 68}}, Interval: 720 * time.Millisecond}
+	case "sleepy":
+		return emotionLEDProfile{Stops: [][3]int{{2, 1, 8}, {14, 6, 38}, {36, 16, 82}, {8, 3, 24}}, Interval: 1050 * time.Millisecond}
+	case "curious", "thinking", "doubtful":
+		return emotionLEDProfile{Stops: [][3]int{{12, 5, 48}, {72, 32, 145}, {24, 88, 168}, {105, 42, 138}}, Interval: 480 * time.Millisecond}
+	default:
+		return emotionLEDProfile{Stops: [][3]int{{8, 3, 24}, {35, 14, 82}, {70, 28, 132}, {28, 10, 62}}, Interval: 620 * time.Millisecond}
+	}
+}
+
+func emotionLEDGradientColor(profile emotionLEDProfile, frame int64) [3]int {
+	if len(profile.Stops) == 0 {
+		return [3]int{}
+	}
+	cycle := int64(len(profile.Stops) * emotionLEDGradientSteps)
+	phase := frame % cycle
+	fromIndex := int(phase / emotionLEDGradientSteps)
+	toIndex := (fromIndex + 1) % len(profile.Stops)
+	step := int(phase % emotionLEDGradientSteps)
+	from := profile.Stops[fromIndex]
+	to := profile.Stops[toIndex]
+	var color [3]int
+	for channel := range color {
+		color[channel] = (from[channel]*(emotionLEDGradientSteps-step) + to[channel]*step) / emotionLEDGradientSteps
+	}
+	return color
+}
+
+func (s *wsSession) currentEmotionLEDState(now time.Time) string {
+	s.mu.Lock()
+	listening := s.isListening
+	playing := s.playbackStarted || s.opusEnc != nil
+	emotion := s.responseLEDEmotion
+	emotionAt := s.responseEmotionAt
+	lastInteraction := s.lastInteraction
+	s.mu.Unlock()
+	if listening {
+		return "curious"
+	}
+	if s.activity != nil && s.activity.responseBusy() && !playing {
+		return "thinking"
+	}
+	if !lastInteraction.IsZero() && now.Sub(lastInteraction) >= emotionLEDSleepAfter {
+		return "sleepy"
+	}
+	if emotion != "" && !emotionAt.IsZero() && now.Sub(emotionAt) < emotionLEDHold {
+		return emotion
+	}
+	return "neutral"
+}
+
+func (s *wsSession) emotionLEDLoop(ctx context.Context) {
+	if !aiBool(ctx, "stackchan_emotion_led_enabled", false) {
+		return
+	}
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+	lastEmotion := ""
+	var frame int64
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		device := s.deviceMCP
+		if device == nil || !device.hasTool("self.robot.set_led_color") {
+			timer.Reset(500 * time.Millisecond)
+			continue
+		}
+		emotion := s.currentEmotionLEDState(time.Now())
+		if emotion != lastEmotion {
+			lastEmotion = emotion
+			frame = 0
+		}
+		profile := emotionLEDProfileFor(emotion)
+		color := emotionLEDGradientColor(profile, frame)
+		callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		s.actionMu.Lock()
+		_, err := device.callTool(callCtx, "self.robot.set_led_color", map[string]any{"red": color[0], "green": color[1], "blue": color[2]})
+		s.actionMu.Unlock()
+		cancel()
+		if err != nil {
+			if ctx.Err() == nil {
+				g.Log().Warningf(ctx, "[LED] device=%s emotion heartbeat stopped after device error: %v", s.deviceID, err)
+			}
+			return
+		}
+		if frame == 0 {
+			g.Log().Infof(ctx, "[LED] device=%s emotion=%s heartbeat_ms=%d", s.deviceID, emotion, profile.Interval.Milliseconds())
+		}
+		frame++
+		timer.Reset(profile.Interval)
+	}
+}
+
 func reactionForEmotion(emotion string) deviceReaction {
 	switch emotion {
 	case "surprised":
@@ -625,6 +776,9 @@ func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
 	reaction := reactionForEmotion(emotion)
 	headMotion := device.hasTool("self.robot.set_head_angles")
 	ledMotion := device.hasTool("self.robot.set_led_color")
+	if aiBool(ctx, "stackchan_emotion_led_enabled", false) {
+		ledMotion = false
+	}
 	go func() {
 		s.actionMu.Lock()
 		defer s.actionMu.Unlock()
@@ -999,6 +1153,7 @@ func (s *wsSession) handleListen(ctx context.Context, msg map[string]any) {
 		}
 		s.mu.Lock()
 		s.isListening = true
+		s.lastInteraction = time.Now()
 		s.vadHeardSpeech = false
 		s.vadSilenceSamples = 0
 		s.inputFrames = 0

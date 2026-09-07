@@ -119,7 +119,7 @@ func settingsUpdateError(values map[string]string) string {
 		if !isSettingsUIKey(key) {
 			return "unsupported setting"
 		}
-		if (key == "conversation_history_enabled" || key == "face_contact_enabled" || key == "autonomous_actions_enabled" || key == "stackchan_speech_motion_enabled" || key == "stackchan_loud_startle_enabled") && value != "true" && value != "false" {
+		if (key == "conversation_history_enabled" || key == "face_contact_enabled" || key == "autonomous_actions_enabled" || key == "stackchan_speech_motion_enabled" || key == "stackchan_emotion_led_enabled" || key == "stackchan_loud_startle_enabled") && value != "true" && value != "false" {
 			return key + " must be true or false"
 		}
 		switch key {

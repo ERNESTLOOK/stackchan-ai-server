@@ -238,6 +238,49 @@ func TestEmotionForText(t *testing.T) {
 	}
 }
 
+func TestEmotionLEDForTextAddsCharacterStates(t *testing.T) {
+	tests := map[string]string{
+		"교수님, 이브 조금 졸려":  "sleepy",
+		"헤헤, 칭찬받으니 부끄러워": "shy",
+		"흥! 이브 삐질 거야":    "pouty",
+		"어라, 정말 궁금해":     "curious",
+		"앗, 깜짝 놀랐어!":     "surprised",
+	}
+	for text, want := range tests {
+		if got := emotionLEDForText(text); got != want {
+			t.Errorf("emotionLEDForText(%q)=%q, want %q", text, got, want)
+		}
+	}
+}
+
+func TestEmotionLEDProfilesUseSafeGradientsAndTempo(t *testing.T) {
+	emotions := []string{"neutral", "happy", "surprised", "angry", "sad", "sleepy", "curious", "shy", "pouty"}
+	for _, emotion := range emotions {
+		profile := emotionLEDProfileFor(emotion)
+		if len(profile.Stops) < 4 {
+			t.Fatalf("%s gradient has too few stops: %#v", emotion, profile.Stops)
+		}
+		for frame := int64(0); frame < int64(len(profile.Stops)*emotionLEDGradientSteps); frame++ {
+			color := emotionLEDGradientColor(profile, frame)
+			for _, channel := range color {
+				if channel < 0 || channel > 168 {
+					t.Fatalf("%s gradient out of safe range: %#v", emotion, color)
+				}
+			}
+		}
+	}
+	if emotionLEDProfileFor("surprised").Interval >= emotionLEDProfileFor("happy").Interval {
+		t.Fatal("surprise heartbeat should be faster than happiness")
+	}
+	if emotionLEDProfileFor("sleepy").Interval <= emotionLEDProfileFor("sad").Interval {
+		t.Fatal("sleepy heartbeat should be the slowest")
+	}
+	profile := emotionLEDProfileFor("happy")
+	if emotionLEDGradientColor(profile, 1) == profile.Stops[0] {
+		t.Fatal("gradient did not interpolate between color stops")
+	}
+}
+
 func TestReactionForEmotionUsesSafeMotionRange(t *testing.T) {
 	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful", "surprised"} {
 		reaction := reactionForEmotion(emotion)
