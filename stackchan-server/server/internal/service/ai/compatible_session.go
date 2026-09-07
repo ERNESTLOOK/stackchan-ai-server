@@ -106,7 +106,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 		return
 	}
 	if text == "" {
-		s.deliverReply(ctx, "응? 교수님, 다시 한 번 말해 줘.")
+		s.completeSilentTurn("empty_transcription")
 		return
 	}
 	if s.cb.OnSTT != nil {
@@ -127,7 +127,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	}
 	reply = constrainVoiceReply(reply)
 	if reply == "" {
-		s.deliverReply(ctx, "응? 교수님, 다시 한 번 말해 줘.")
+		s.completeSilentTurn("empty_reply")
 		return
 	}
 	s.deliverReply(ctx, reply)
@@ -138,9 +138,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 }
 
 // deliverReply keeps every accepted turn on the normal TTS start/audio/stop
-// protocol path. In particular, an empty STT result must still produce a short
-// retry prompt; a bare tts:stop does not make all stock firmware versions
-// resume automatic follow-up listening.
+// protocol path.
 func (s *compatibleSession) deliverReply(ctx context.Context, reply string) {
 	if s.cb.OnText != nil {
 		s.cb.OnText(reply)
@@ -157,6 +155,21 @@ func (s *compatibleSession) deliverReply(ctx context.Context, reply string) {
 		clipped := applyPCMVolume(pcmReply, s.ttsVolumeGain)
 		g.Log().Infof(gctx.New(), "[COMPAT] TTS voice=%s pitch_rate=%.2f volume_gain=%.2f samples=%d original_samples=%d clipped=%d", s.ttsClient.ttsVoice, s.ttsPitchRate, s.ttsVolumeGain, len(pcmReply), originalSamples, clipped)
 		s.cb.OnAudio(pcmReply)
+	}
+	if s.cb.OnStop != nil {
+		s.cb.OnStop()
+	}
+}
+
+// completeSilentTurn advances stock firmware through speaking and back to
+// listening without synthesizing audible filler. A bare tts:stop is ignored
+// while the firmware is still in listening state, so the start/stop callback
+// pair is the smallest reliable terminal handshake for silence and empty model
+// output.
+func (s *compatibleSession) completeSilentTurn(reason string) {
+	g.Log().Infof(gctx.New(), "[COMPAT] silent turn completion reason=%s", reason)
+	if s.cb.OnStart != nil {
+		s.cb.OnStart()
 	}
 	if s.cb.OnStop != nil {
 		s.cb.OnStop()

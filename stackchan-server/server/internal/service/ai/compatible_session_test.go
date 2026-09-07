@@ -2,24 +2,19 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func TestCompatibleSilenceSpeaksRetryAndCompletesPlayback(t *testing.T) {
-	spokenText := ""
+func TestCompatibleSilenceCompletesProtocolWithoutSpeech(t *testing.T) {
+	ttsRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/audio/transcriptions":
 			_, _ = w.Write([]byte(`{"text":"","segments":[]}`))
 		case "/v1/audio/speech":
-			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatal(err)
-			}
-			spokenText, _ = body["input"].(string)
+			ttsRequests++
 			_, _ = w.Write([]byte{0x34, 0x12})
 		default:
 			http.NotFound(w, r)
@@ -42,10 +37,10 @@ func TestCompatibleSilenceSpeaksRetryAndCompletesPlayback(t *testing.T) {
 		},
 	}
 	session.completeTurn(context.Background(), make([]int16, 160))
-	if spokenText != "응? 교수님, 다시 한 번 말해 줘." {
-		t.Fatalf("retry prompt=%q", spokenText)
+	if ttsRequests != 0 {
+		t.Fatalf("silence unexpectedly requested TTS %d times", ttsRequests)
 	}
-	if idleCalls != 0 || startCalls != 1 || stopCalls != 1 || audioSamples != 1 {
+	if idleCalls != 0 || startCalls != 1 || stopCalls != 1 || audioSamples != 0 {
 		t.Fatalf("idle=%d start=%d stop=%d audio=%d", idleCalls, startCalls, stopCalls, audioSamples)
 	}
 }
