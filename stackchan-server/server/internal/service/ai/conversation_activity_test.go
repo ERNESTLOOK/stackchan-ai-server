@@ -68,6 +68,23 @@ func TestConversationAllowsFollowUpAndWaitsForPlayback(t *testing.T) {
 	}
 }
 
+func TestAutonomousActionWaitsForProviderResponse(t *testing.T) {
+	now := time.Now()
+	a := newConversationActivity(15*time.Second, now)
+	if !a.audio(now, []int16{1000, -1000}) || !a.commit(now) {
+		t.Fatal("could not enter provider response state")
+	}
+	s := &wsSession{activity: a, frameQueue: make(chan []byte, 1)}
+	if s.canStartAutonomousAction() {
+		t.Fatal("autonomous action started while STT/LLM/TTS response was pending")
+	}
+	a.playbackDone(now)
+	if !s.canStartAutonomousAction() {
+		t.Fatal("autonomous action did not resume after response completed")
+	}
+	s.finishAutonomousAction()
+}
+
 func TestConversationAutoListenDoesNotRearmTimeout(t *testing.T) {
 	now := time.Now()
 	a := newConversationActivity(15*time.Second, now)

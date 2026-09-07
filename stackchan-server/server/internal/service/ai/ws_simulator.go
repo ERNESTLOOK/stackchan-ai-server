@@ -74,6 +74,7 @@ type wsSession struct {
 	opusDec   *opus.Decoder // device input decoder (16kHz, reset per utterance)
 
 	mu               sync.Mutex         // protects opusEnc and isListening
+	actionMu         sync.Mutex         // serialises head/LED sequences sent to fragile device firmware
 	opusEnc          *opusStreamEncoder // non-nil only while model is speaking
 	isListening      bool
 	playbackStarted  bool
@@ -228,9 +229,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 			enc, err := newOpusStreamEncoder()
 			if err != nil {
 				g.Log().Warningf(ctx, "[WS] device=%s encoder init: %v", deviceID, err)
-				if aware, ok := s.rt.(PlaybackStateAware); ok {
-					aware.InterruptPlayback()
-				}
+				s.finishTurnWithoutPlayback(ctx, "encoder_init_failed")
 				return
 			}
 			s.mu.Lock()
@@ -253,10 +252,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 			enc := s.opusEnc
 			s.mu.Unlock()
 			if enc == nil {
-				s.activity.playbackDone(time.Now())
-				if aware, ok := s.rt.(PlaybackStateAware); ok {
-					aware.InterruptPlayback()
-				}
+				s.finishTurnWithoutPlayback(ctx, "tts_no_audio")
 				return
 			}
 			// Flush remaining PCM that didn't fill a complete 60ms frame.
@@ -278,7 +274,7 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 		},
 
 		OnIdle: func() {
-			s.activity.playbackDone(time.Now())
+			s.finishTurnWithoutPlayback(ctx, "provider_idle")
 		},
 	}
 
@@ -399,6 +395,31 @@ func (s *wsSession) drainFrameQueue() {
 			return
 		}
 	}
+}
+
+// finishTurnWithoutPlayback always releases the stock firmware from its
+// listening/thinking state. A filtered empty STT result used to call OnIdle
+// without sending any terminal protocol message, leaving the device looking
+// dead until it reset the connection itself.
+func (s *wsSession) finishTurnWithoutPlayback(ctx context.Context, reason string) {
+	s.activity.playbackDone(time.Now())
+	s.mu.Lock()
+	s.opusEnc = nil
+	s.playbackStarted = false
+	if s.prebufferTimer != nil {
+		s.prebufferTimer.Stop()
+		s.prebufferTimer = nil
+	}
+	s.mu.Unlock()
+	s.drainFrameQueue()
+	if aware, ok := s.rt.(PlaybackStateAware); ok {
+		aware.InterruptPlayback()
+	}
+	if err := s.sendJSON(map[string]any{"type": "tts", "state": "stop"}); err != nil {
+		g.Log().Warningf(ctx, "[WS] device=%s idle reset failed reason=%s: %v", s.deviceID, reason, err)
+		return
+	}
+	g.Log().Infof(ctx, "[WS] device=%s turn ended without playback reason=%s; device returned to idle", s.deviceID, reason)
 }
 
 func (s *wsSession) run(ctx context.Context) {
@@ -595,12 +616,17 @@ func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
 	}
 	reaction := reactionForEmotion(emotion)
 	headMotion := aiBool(ctx, "stackchan_speech_motion_enabled", false) && device.hasTool("self.robot.set_head_angles")
-	if headMotion {
-		go s.animateHeadGesture(ctx, device, emotion, reaction)
-	}
-	if device.hasTool("self.robot.set_led_color") {
-		go s.animateLED(ctx, device, emotion, reaction)
-	}
+	ledMotion := device.hasTool("self.robot.set_led_color")
+	go func() {
+		s.actionMu.Lock()
+		defer s.actionMu.Unlock()
+		if headMotion {
+			s.animateHeadGesture(ctx, device, emotion, reaction)
+		}
+		if ledMotion {
+			_ = s.animateLED(ctx, device, emotion, reaction)
+		}
+	}()
 	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s speech_motion=%t", s.deviceID, emotion, headMotion)
 }
 
@@ -653,6 +679,8 @@ func (s *wsSession) runLoudStartle(ctx context.Context, device *deviceMCPClient)
 		s.loudStartleBusy = false
 		s.mu.Unlock()
 	}()
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
 	reaction := reactionForEmotion("surprised")
 	if device.hasTool("self.robot.set_head_angles") {
 		steps := [][3]int{{-16, 18, 360}, {14, 4, 360}, {0, 10, 260}, {0, 8, 180}}
@@ -776,7 +804,7 @@ func autonomousReaction(sequence int64) deviceReaction {
 func (s *wsSession) canStartAutonomousAction() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.autonomousBusy || s.isListening || s.playbackStarted || s.opusEnc != nil || len(s.frameQueue) > 0 {
+	if s.autonomousBusy || s.loudStartleBusy || s.isListening || s.playbackStarted || s.opusEnc != nil || len(s.frameQueue) > 0 || (s.activity != nil && s.activity.responseBusy()) {
 		return false
 	}
 	s.autonomousBusy = true
@@ -810,6 +838,8 @@ func (s *wsSession) autonomousLoop(ctx context.Context) {
 
 func (s *wsSession) runAutonomousAction(ctx context.Context) {
 	defer s.finishAutonomousAction()
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
 	device := s.deviceMCP
 	if device == nil {
 		return

@@ -115,6 +115,12 @@ func (a *conversationActivity) playbackDone(now time.Time) {
 	}
 }
 
+func (a *conversationActivity) responseBusy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.busy
+}
+
 func (s *wsSession) idleLoop(ctx context.Context) {
 	if s.activity.timeout == 0 {
 		return
