@@ -102,11 +102,11 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	text, err := s.sttClient.Transcribe(ctx, pcmToWAV(pcm, 16000))
 	if err != nil {
 		g.Log().Warningf(gctx.New(), "[COMPAT] transcription: %v", err)
-		s.finishWithoutPlayback()
+		s.deliverReply(ctx, "앗, 잠깐 꼬였어. 교수님, 한 번만 다시 말해 줘.")
 		return
 	}
 	if text == "" {
-		s.finishWithoutPlayback()
+		s.deliverReply(ctx, "응? 교수님, 다시 한 번 말해 줘.")
 		return
 	}
 	if s.cb.OnSTT != nil {
@@ -122,14 +122,26 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	reply, err := s.llmClient.Chat(ctx, history, s.ha, deviceTools)
 	if err != nil {
 		g.Log().Warningf(gctx.New(), "[COMPAT] chat: %v", err)
-		s.finishWithoutPlayback()
+		s.deliverReply(ctx, "앗, 잠깐 꼬였어. 교수님, 한 번만 다시 말해 줘.")
 		return
 	}
 	reply = constrainVoiceReply(reply)
 	if reply == "" {
-		s.finishWithoutPlayback()
+		s.deliverReply(ctx, "응? 교수님, 다시 한 번 말해 줘.")
 		return
 	}
+	s.deliverReply(ctx, reply)
+
+	s.mu.Lock()
+	s.history = append(history, chatMessage{Role: "assistant", Content: reply})
+	s.mu.Unlock()
+}
+
+// deliverReply keeps every accepted turn on the normal TTS start/audio/stop
+// protocol path. In particular, an empty STT result must still produce a short
+// retry prompt; a bare tts:stop does not make all stock firmware versions
+// resume automatic follow-up listening.
+func (s *compatibleSession) deliverReply(ctx context.Context, reply string) {
 	if s.cb.OnText != nil {
 		s.cb.OnText(reply)
 	}
@@ -149,10 +161,6 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	if s.cb.OnStop != nil {
 		s.cb.OnStop()
 	}
-
-	s.mu.Lock()
-	s.history = append(history, chatMessage{Role: "assistant", Content: reply})
-	s.mu.Unlock()
 }
 
 func (s *compatibleSession) finishWithoutPlayback() {
