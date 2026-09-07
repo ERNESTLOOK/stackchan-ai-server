@@ -610,12 +610,20 @@ func reactionForEmotion(emotion string) deviceReaction {
 }
 
 func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
+	// Stock StackChan firmware can become unresponsive when a burst of MCP
+	// head/LED commands overlaps audio playback. Keep the normal protocol-level
+	// facial emotion, but make every extra physical speech reaction opt-in as a
+	// single safety switch.
+	if !aiBool(ctx, "stackchan_speech_motion_enabled", false) {
+		g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s physical_reaction=false", s.deviceID, emotion)
+		return
+	}
 	device := s.deviceMCP
 	if device == nil {
 		return
 	}
 	reaction := reactionForEmotion(emotion)
-	headMotion := aiBool(ctx, "stackchan_speech_motion_enabled", false) && device.hasTool("self.robot.set_head_angles")
+	headMotion := device.hasTool("self.robot.set_head_angles")
 	ledMotion := device.hasTool("self.robot.set_led_color")
 	go func() {
 		s.actionMu.Lock()
