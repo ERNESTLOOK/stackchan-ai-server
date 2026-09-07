@@ -65,6 +65,108 @@ func TestDeviceMCPInitializeListsAndCallsTools(t *testing.T) {
 	}
 }
 
+func TestCommunityToolsExposeOnlyHighLevelNames(t *testing.T) {
+	client := newDeviceMCPClient("session-community", func(any) error { return nil })
+	client.tools = []deviceMCPTool{
+		{Name: "self.camera.take_photo"},
+		{Name: "self.robot.set_head_angles"},
+		{Name: "self.robot.set_led_color"},
+	}
+	client.nameMap = map[string]string{
+		openAIDeviceToolName("self.camera.take_photo"):     "self.camera.take_photo",
+		openAIDeviceToolName("self.robot.set_head_angles"): "self.robot.set_head_angles",
+		openAIDeviceToolName("self.robot.set_led_color"):   "self.robot.set_led_color",
+	}
+
+	tools := client.openAITools()
+	names := map[string]bool{}
+	for _, tool := range tools {
+		name := tool["function"].(map[string]any)["name"].(string)
+		names[name] = true
+		if strings.HasPrefix(name, "device__") {
+			t.Fatalf("raw device tool leaked to LLM: %s", name)
+		}
+	}
+	for _, want := range []string{"stackchan_see", "stackchan_move", "stackchan_nod", "stackchan_shake", "stackchan_face", "stackchan_status", "stackchan_health"} {
+		if !names[want] {
+			t.Fatalf("missing community tool %s in %#v", want, names)
+		}
+	}
+}
+
+func TestCommunityMoveClampsToSafeRange(t *testing.T) {
+	var client *deviceMCPClient
+	var gotArgs map[string]any
+	client = newDeviceMCPClient("session-move", func(v any) error {
+		b, _ := json.Marshal(v)
+		var request struct {
+			Payload struct {
+				ID     int64          `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			} `json:"payload"`
+		}
+		_ = json.Unmarshal(b, &request)
+		if request.Payload.Method == "tools/call" {
+			gotArgs = request.Payload.Params["arguments"].(map[string]any)
+			go client.handle(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request.Payload.ID,
+				"result":  map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}, "isError": false},
+			})
+		}
+		return nil
+	})
+	client.nameMap = map[string]string{openAIDeviceToolName("self.robot.set_head_angles"): "self.robot.set_head_angles"}
+
+	result, err := client.call(context.Background(), "stackchan_move", map[string]any{"yaw": 99.0, "pitch": -20.0, "speed": 20.0})
+	if err != nil || result != "ok" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if numberArg(gotArgs, "yaw", 0) != 20 || numberArg(gotArgs, "pitch", 0) != 5 || numberArg(gotArgs, "speed", 0) != 100 {
+		t.Fatalf("move args were not clamped: %#v", gotArgs)
+	}
+}
+
+func TestCommunityFaceFallsBackToLED(t *testing.T) {
+	var client *deviceMCPClient
+	var toolName string
+	var gotArgs map[string]any
+	client = newDeviceMCPClient("session-face", func(v any) error {
+		b, _ := json.Marshal(v)
+		var request struct {
+			Payload struct {
+				ID     int64          `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			} `json:"payload"`
+		}
+		_ = json.Unmarshal(b, &request)
+		if request.Payload.Method == "tools/call" {
+			toolName = request.Payload.Params["name"].(string)
+			gotArgs = request.Payload.Params["arguments"].(map[string]any)
+			go client.handle(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request.Payload.ID,
+				"result":  map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}, "isError": false},
+			})
+		}
+		return nil
+	})
+	client.nameMap = map[string]string{openAIDeviceToolName("self.robot.set_led_color"): "self.robot.set_led_color"}
+
+	result, err := client.call(context.Background(), "stackchan_face", map[string]any{"expression": "pouty"})
+	if err != nil || result != "ok" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if toolName != "self.robot.set_led_color" {
+		t.Fatalf("face fallback used %q", toolName)
+	}
+	if numberArg(gotArgs, "red", 0) != 168 || numberArg(gotArgs, "green", 0) != 20 || numberArg(gotArgs, "blue", 0) != 45 {
+		t.Fatalf("unexpected pouty LED color: %#v", gotArgs)
+	}
+}
+
 func TestEmotionForText(t *testing.T) {
 	tests := map[string]string{
 		"교수님, 좋아! 내가 도와줄게": "happy",

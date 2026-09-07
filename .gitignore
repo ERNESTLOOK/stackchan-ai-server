@@ -1,5 +1,7 @@
 /stackchan-server/.env
 /stackchan-server/data/
 /stackchan-server/dist/
+/stackchan-server/server/stackchan-server
+/stackchan-server/server/internal/service/**/logs/
 __pycache__/
 *.py[cod]
