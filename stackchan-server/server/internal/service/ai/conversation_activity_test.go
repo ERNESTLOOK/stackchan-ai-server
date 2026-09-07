@@ -182,6 +182,21 @@ func TestApplyPCMPitchRateSpeedsUpAndClamps(t *testing.T) {
 	}
 }
 
+func TestLoudSoundDetectedOnlyForStartleLevelAudio(t *testing.T) {
+	normalSpeech := []int16{600, -900, 1200, -1400, 900, -700}
+	if loudSoundDetected(normalSpeech) {
+		t.Fatal("normal speech level triggered loud startle")
+	}
+	sharpClap := []int16{400, -800, 23000, -1200, 700}
+	if !loudSoundDetected(sharpClap) {
+		t.Fatal("sharp loud peak did not trigger startle")
+	}
+	loudSustained := []int16{9500, -9500, 9200, -9200}
+	if !loudSoundDetected(loudSustained) {
+		t.Fatal("sustained loud audio did not trigger startle")
+	}
+}
+
 func TestConversationIdleClosesDeviceAudioChannel(t *testing.T) {
 	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

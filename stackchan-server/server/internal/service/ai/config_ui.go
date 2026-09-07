@@ -119,11 +119,11 @@ func settingsUpdateError(values map[string]string) string {
 		if !isSettingsUIKey(key) {
 			return "unsupported setting"
 		}
-		if (key == "conversation_history_enabled" || key == "face_contact_enabled" || key == "autonomous_actions_enabled" || key == "stackchan_speech_motion_enabled") && value != "true" && value != "false" {
+		if (key == "conversation_history_enabled" || key == "face_contact_enabled" || key == "autonomous_actions_enabled" || key == "stackchan_speech_motion_enabled" || key == "stackchan_loud_startle_enabled") && value != "true" && value != "false" {
 			return key + " must be true or false"
 		}
 		switch key {
-		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds", "face_contact_interval_seconds", "autonomous_action_interval_seconds", "stackchan_motion_speed", "stackchan_motion_step_delay_ms":
+		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds", "face_contact_interval_seconds", "autonomous_action_interval_seconds", "stackchan_motion_speed", "stackchan_motion_step_delay_ms", "stackchan_loud_startle_cooldown_seconds":
 			lower, upper := 0, 300
 			if key == "conversation_history_days" {
 				lower, upper = 1, 3650
@@ -142,6 +142,9 @@ func settingsUpdateError(values map[string]string) string {
 			}
 			if key == "stackchan_motion_step_delay_ms" {
 				lower, upper = 50, 1000
+			}
+			if key == "stackchan_loud_startle_cooldown_seconds" {
+				lower, upper = 3, 60
 			}
 			n, err := strconv.Atoi(value)
 			if err != nil || n < lower || n > upper {

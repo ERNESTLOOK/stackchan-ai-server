@@ -51,6 +51,11 @@ const (
 	serverVADSilenceTime = 360 * time.Millisecond
 )
 
+const (
+	loudStartlePeakThreshold = 22000
+	loudStartleRMSThreshold  = int64(9000 * 9000)
+)
+
 type deviceReaction struct {
 	Yaw, Pitch int
 	Red        int
@@ -97,6 +102,8 @@ type wsSession struct {
 	faceContactBusy   bool
 	autonomousBusy    bool
 	autonomousCount   int64
+	loudStartleBusy   bool
+	lastLoudStartle   time.Time
 	ledGeneration     int64
 }
 
@@ -436,6 +443,7 @@ func (s *wsSession) run(ctx context.Context) {
 			s.inputFrames++
 			s.inputSamples += len(pcm)
 			s.mu.Unlock()
+			s.maybeReactToLoudSound(ctx, pcm)
 			if !s.activity.audio(time.Now(), pcm) {
 				return
 			}
@@ -596,6 +604,72 @@ func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
 	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s speech_motion=%t", s.deviceID, emotion, headMotion)
 }
 
+func loudSoundDetected(pcm []int16) bool {
+	if len(pcm) == 0 {
+		return false
+	}
+	var energy int64
+	peak := 0
+	for _, sample := range pcm {
+		value := int(sample)
+		if value < 0 {
+			value = -value
+		}
+		if value > peak {
+			peak = value
+		}
+		energy += int64(sample) * int64(sample)
+	}
+	return peak >= loudStartlePeakThreshold || energy/int64(len(pcm)) >= loudStartleRMSThreshold
+}
+
+func loudStartleCooldown(ctx context.Context) time.Duration {
+	return time.Duration(min(60, max(3, aiInt(ctx, "stackchan_loud_startle_cooldown_seconds", 8)))) * time.Second
+}
+
+func (s *wsSession) maybeReactToLoudSound(ctx context.Context, pcm []int16) {
+	if !aiBool(ctx, "stackchan_loud_startle_enabled", false) || !loudSoundDetected(pcm) {
+		return
+	}
+	device := s.deviceMCP
+	if device == nil {
+		return
+	}
+	now := time.Now()
+	s.mu.Lock()
+	if s.loudStartleBusy || (!s.lastLoudStartle.IsZero() && now.Sub(s.lastLoudStartle) < loudStartleCooldown(ctx)) {
+		s.mu.Unlock()
+		return
+	}
+	s.loudStartleBusy = true
+	s.lastLoudStartle = now
+	s.mu.Unlock()
+	go s.runLoudStartle(ctx, device)
+}
+
+func (s *wsSession) runLoudStartle(ctx context.Context, device *deviceMCPClient) {
+	defer func() {
+		s.mu.Lock()
+		s.loudStartleBusy = false
+		s.mu.Unlock()
+	}()
+	reaction := reactionForEmotion("surprised")
+	if device.hasTool("self.robot.set_head_angles") {
+		steps := [][3]int{{-16, 18, 360}, {14, 4, 360}, {0, 10, 260}, {0, 8, 180}}
+		if _, err := device.callHeadSequence(ctx, steps); err != nil {
+			g.Log().Warningf(ctx, "[STARTLE] device=%s head: %v", s.deviceID, err)
+			return
+		}
+	}
+	if device.hasTool("self.robot.set_led_color") {
+		if err := s.animateLED(ctx, device, "startle", reaction); err != nil {
+			g.Log().Warningf(ctx, "[STARTLE] device=%s led: %v", s.deviceID, err)
+			return
+		}
+	}
+	g.Log().Infof(ctx, "[STARTLE] device=%s loud sound reaction complete", s.deviceID)
+}
+
 func (s *wsSession) animateHeadGesture(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) {
 	steps := headGestureSteps(emotion, reaction, communityMotionSpeed(ctx, 180))
 	if _, err := device.callHeadSequence(ctx, steps); err != nil {
@@ -631,26 +705,27 @@ func headGestureSteps(emotion string, reaction deviceReaction, speed int) [][3]i
 	}
 }
 
-func (s *wsSession) animateLED(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) {
+func (s *wsSession) animateLED(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) error {
 	generation := atomic.AddInt64(&s.ledGeneration, 1)
 	steps := ledPatternSteps(reaction)
 	for _, step := range steps {
 		if atomic.LoadInt64(&s.ledGeneration) != generation {
-			return
+			return nil
 		}
 		if _, err := device.callTool(ctx, "self.robot.set_led_color", map[string]any{"red": step.Red, "green": step.Green, "blue": step.Blue}); err != nil {
 			g.Log().Warningf(ctx, "[REACTION] device=%s led emotion=%s: %v", s.deviceID, emotion, err)
-			return
+			return err
 		}
 		timer := time.NewTimer(reaction.LEDSpeed)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return
+			return ctx.Err()
 		case <-timer.C:
 		}
 	}
 	g.Log().Infof(ctx, "[REACTION] device=%s led emotion=%s pattern=%s steps=%d", s.deviceID, emotion, reaction.LEDPattern, len(steps))
+	return nil
 }
 
 func ledPatternSteps(reaction deviceReaction) []deviceReaction {
