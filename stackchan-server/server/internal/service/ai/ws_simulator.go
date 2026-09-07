@@ -747,10 +747,10 @@ func (s *wsSession) runAutonomousAction(ctx context.Context) {
 		return
 	}
 	if hasHead {
-		go s.animateHeadGesture(ctx, device, "heartbeat", reaction)
+		s.animateHeadGesture(ctx, device, "heartbeat", reaction)
 	}
 	if hasLED {
-		go s.animateLED(ctx, device, "heartbeat", reaction)
+		s.animateLED(ctx, device, "heartbeat", reaction)
 	}
 	g.Log().Infof(ctx, "[AUTONOMY] device=%s heartbeat action=%d led=%t head=%t", s.deviceID, sequence, hasLED, hasHead)
 }
