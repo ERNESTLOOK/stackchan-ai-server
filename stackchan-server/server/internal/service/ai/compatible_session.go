@@ -100,9 +100,11 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	text, err := s.sttClient.Transcribe(ctx, pcmToWAV(pcm, 16000))
 	if err != nil {
 		g.Log().Warningf(gctx.New(), "[COMPAT] transcription: %v", err)
+		s.finishWithoutPlayback()
 		return
 	}
 	if text == "" {
+		s.finishWithoutPlayback()
 		return
 	}
 	if s.cb.OnSTT != nil {
@@ -118,10 +120,12 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	reply, err := s.llmClient.Chat(ctx, history, s.ha, deviceTools)
 	if err != nil {
 		g.Log().Warningf(gctx.New(), "[COMPAT] chat: %v", err)
+		s.finishWithoutPlayback()
 		return
 	}
 	reply = constrainVoiceReply(reply)
 	if reply == "" {
+		s.finishWithoutPlayback()
 		return
 	}
 	if s.cb.OnText != nil {
@@ -145,6 +149,12 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	s.mu.Lock()
 	s.history = append(history, chatMessage{Role: "assistant", Content: reply})
 	s.mu.Unlock()
+}
+
+func (s *compatibleSession) finishWithoutPlayback() {
+	if s.cb.OnIdle != nil {
+		s.cb.OnIdle()
+	}
 }
 
 func appendAutomaticVisionContext(ctx context.Context, history []chatMessage, text string, device *deviceMCPClient) []chatMessage {

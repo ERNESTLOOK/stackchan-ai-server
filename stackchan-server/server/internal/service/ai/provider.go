@@ -141,6 +141,7 @@ type RealtimeCallbacks struct {
 	OnAudio func([]int16) // 24kHz PCM chunk to play back to the device
 	OnStart func()        // model began speaking
 	OnStop  func()        // model finished speaking
+	OnIdle  func()        // turn ended without playback; release response-busy state
 	OnClose func()        // provider connection ended (any reason — error or normal)
 }
 

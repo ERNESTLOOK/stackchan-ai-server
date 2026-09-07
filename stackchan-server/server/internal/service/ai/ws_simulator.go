@@ -269,6 +269,10 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 			s.opusEnc = nil
 			s.mu.Unlock()
 		},
+
+		OnIdle: func() {
+			s.activity.playbackDone(time.Now())
+		},
 	}
 
 	rt, err := dialProvider(ctx, deviceID, ha, cb)
