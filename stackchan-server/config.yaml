@@ -45,6 +45,7 @@ options:
   stt_base_url: ""
   stt_api_key: ""
   stt_model: ""
+  stt_language: "ko"
   llm_base_url: ""
   llm_api_key: ""
   llm_model: ""
@@ -90,6 +91,7 @@ schema:
   stt_base_url: str?
   stt_api_key: str?
   stt_model: str?
+  stt_language: str?
   llm_base_url: str?
   llm_api_key: str?
   llm_model: str?

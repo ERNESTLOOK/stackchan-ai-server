@@ -15,7 +15,18 @@ import (
 	"time"
 )
 
-const deviceMCPTimeout = 30 * time.Second
+const (
+	deviceMCPTimeout = 30 * time.Second
+	deviceLEDMax     = 168
+
+	// The official firmware describes +/-45 degrees as the natural head-motion
+	// range. Keep LLM-controlled motion inside that range even though the raw
+	// device tool advertises wider mechanical limits.
+	communityYawMin   = -45
+	communityYawMax   = 45
+	communityPitchMin = 0
+	communityPitchMax = 45
+)
 
 type deviceMCPResponse struct {
 	Result json.RawMessage `json:"result"`
@@ -181,7 +192,7 @@ func enhancedDeviceToolDescription(tool deviceMCPTool) string {
 	case "self.camera.take_photo":
 		return tool.Description + "\nUse only for explicit visual requests where the user clearly asks Eve to use the camera, take a photo, or look at what is in front of her. Pass the user's visual question as `question` in Korean."
 	case "self.robot.set_head_angles":
-		return tool.Description + "\nUse only for explicit motion requests. Keep yaw in -20..20, pitch in 5..20, and speed at least 100 unless the device reports a different safe range."
+		return tool.Description + "\nUse only for explicit motion requests. Keep normal motion in yaw -45..45, pitch 0..45, and speed at least 100."
 	case "self.robot.set_led_color":
 		return tool.Description + "\nUse this as Eve's subtle emotional accent light, not as a room light."
 	default:
@@ -196,6 +207,9 @@ func (c *deviceMCPClient) openAITools() []map[string]any {
 }
 
 func (c *deviceMCPClient) callTool(ctx context.Context, deviceName string, arguments map[string]any) (string, error) {
+	if deviceName == "self.robot.set_led_color" {
+		arguments = clampLEDArguments(arguments)
+	}
 	result, err := c.request(ctx, "tools/call", map[string]any{"name": deviceName, "arguments": arguments})
 	if err != nil {
 		return "", err
@@ -254,8 +268,8 @@ func (c *deviceMCPClient) communityOpenAIToolsLocked() []map[string]any {
 			communityTool("stackchan_move",
 				"Move Eve's head for an explicit user motion request. This is not for idle animation; the firmware keeps Eve lively by itself.",
 				objectSchema(map[string]any{
-					"yaw":   map[string]any{"type": "number", "minimum": -20, "maximum": 20, "description": "Left/right head angle. Negative is left, positive is right."},
-					"pitch": map[string]any{"type": "number", "minimum": 5, "maximum": 20, "description": "Up/down head angle in the safe normal range."},
+					"yaw":   map[string]any{"type": "number", "minimum": communityYawMin, "maximum": communityYawMax, "description": "Left/right head angle in the official natural-interaction range. Negative is left, positive is right."},
+					"pitch": map[string]any{"type": "number", "minimum": communityPitchMin, "maximum": communityPitchMax, "description": "Up/down head angle in the official natural-interaction range."},
 					"speed": map[string]any{"type": "number", "minimum": 100, "maximum": 400, "description": "Servo speed. Use 140-220 for normal motion."},
 				}, []string{"yaw", "pitch"})),
 			communityTool("stackchan_nod",
@@ -337,8 +351,8 @@ func (c *deviceMCPClient) callCommunityTool(ctx context.Context, name string, ar
 		}
 		return c.callTool(ctx, "self.camera.take_photo", map[string]any{"question": question})
 	case "stackchan_move":
-		yaw := int(clampFloat(numberArg(arguments, "yaw", 0), -20, 20))
-		pitch := int(clampFloat(numberArg(arguments, "pitch", 8), 5, 20))
+		yaw := int(clampFloat(numberArg(arguments, "yaw", 0), communityYawMin, communityYawMax))
+		pitch := int(clampFloat(numberArg(arguments, "pitch", 8), communityPitchMin, communityPitchMax))
 		speed := int(clampFloat(numberArg(arguments, "speed", float64(communityMotionSpeed(ctx, 160))), 100, 400))
 		return c.callHead(ctx, yaw, pitch, speed)
 	case "stackchan_nod":
@@ -545,4 +559,15 @@ func clampFloat(value, low, high float64) float64 {
 		return high
 	}
 	return value
+}
+
+func clampLEDArguments(arguments map[string]any) map[string]any {
+	clamped := map[string]any{}
+	for key, value := range arguments {
+		clamped[key] = value
+	}
+	for _, channel := range []string{"red", "green", "blue"} {
+		clamped[channel] = int(clampFloat(numberArg(arguments, channel, 0), 0, deviceLEDMax))
+	}
+	return clamped
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -37,7 +38,7 @@ func TestCompatibleChatLimitsOutputTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newOpenAIClient(server.URL+"/v1", "test-key", "test-model", "", "", "", "", "")
+	client := newOpenAIClient(server.URL+"/v1", "test-key", "test-model", "", "", "", "", "", "")
 	reply, err := client.Chat(context.Background(), []chatMessage{{Role: "user", Content: "hello"}}, nil, nil)
 	if err != nil || reply != "ok" {
 		t.Fatalf("reply=%q err=%v", reply, err)
@@ -57,9 +58,73 @@ func TestSpeechRequestIncludesVoiceInstructions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newOpenAIClient(server.URL+"/v1", "test-key", "", "", "gpt-4o-mini-tts", "nova", "bright and playful", "")
+	client := newOpenAIClient(server.URL+"/v1", "test-key", "", "", "", "gpt-4o-mini-tts", "nova", "bright and playful", "")
 	pcm, err := client.Speak(context.Background(), "hello")
 	if err != nil || len(pcm) != 1 || pcm[0] != 0x1234 {
 		t.Fatalf("pcm=%v err=%v", pcm, err)
+	}
+}
+
+func TestWhisperTranscriptionUsesKoreanConfidenceMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[string]string{
+			"model": "whisper-1", "language": "ko", "temperature": "0", "response_format": "verbose_json",
+		} {
+			if got := r.FormValue(key); got != want {
+				t.Fatalf("%s=%q, want %q", key, got, want)
+			}
+		}
+		_, _ = w.Write([]byte(`{"text":"안녕하세요","segments":[{"no_speech_prob":0.02,"avg_logprob":-0.2}]}`))
+	}))
+	defer server.Close()
+
+	client := newOpenAIClient(server.URL+"/v1", "test-key", "", "whisper-1", "ko", "", "", "", "")
+	text, err := client.Transcribe(context.Background(), []byte("wav"))
+	if err != nil || text != "안녕하세요" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+}
+
+func TestNonWhisperTranscriptionKeepsCompatibleJSONFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.FormValue("response_format"); got != "" {
+			t.Fatalf("response_format=%q, want provider default", got)
+		}
+		_, _ = w.Write([]byte(`{"text":"테스트"}`))
+	}))
+	defer server.Close()
+
+	client := newOpenAIClient(server.URL, "test-key", "", "gpt-4o-mini-transcribe", "ko", "", "", "", "")
+	text, err := client.Transcribe(context.Background(), []byte("wav"))
+	if err != nil || text != "테스트" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+}
+
+func TestSTTResponseIsSilence(t *testing.T) {
+	tests := []struct {
+		name string
+		resp sttResponse
+		want bool
+	}{
+		{"empty text", sttResponse{}, true},
+		{"plain compatible JSON", sttResponse{Text: "안녕"}, false},
+		{"high no-speech hallucination", sttResponse{Text: "시청해주셔서 감사합니다", Segments: []sttSegment{{NoSpeechProb: 0.92, AvgLogprob: -0.4}}}, true},
+		{"low-confidence garble", sttResponse{Text: "...", Segments: []sttSegment{{NoSpeechProb: 0.2, AvgLogprob: -1.8}}}, true},
+		{"real speech", sttResponse{Text: "교수님 안녕하세요", Segments: []sttSegment{{NoSpeechProb: 0.03, AvgLogprob: -0.25}}}, false},
+		{"one real segment", sttResponse{Text: "네 좋아요", Segments: []sttSegment{{NoSpeechProb: 0.95, AvgLogprob: -1.4}, {NoSpeechProb: 0.05, AvgLogprob: -0.4}}}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.resp.isSilence(); got != test.want {
+				t.Fatalf("isSilence()=%t, want %t for %s", got, test.want, strings.TrimSpace(test.resp.Text))
+			}
+		})
 	}
 }

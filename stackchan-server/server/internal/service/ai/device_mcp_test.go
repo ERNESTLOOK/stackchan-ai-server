@@ -126,8 +126,41 @@ func TestCommunityMoveClampsToSafeRange(t *testing.T) {
 	if err != nil || result != "ok" {
 		t.Fatalf("result=%q err=%v", result, err)
 	}
-	if numberArg(gotArgs, "yaw", 0) != 20 || numberArg(gotArgs, "pitch", 0) != 5 || numberArg(gotArgs, "speed", 0) != 100 {
+	if numberArg(gotArgs, "yaw", 0) != communityYawMax || numberArg(gotArgs, "pitch", -1) != communityPitchMin || numberArg(gotArgs, "speed", 0) != 100 {
 		t.Fatalf("move args were not clamped: %#v", gotArgs)
+	}
+}
+
+func TestDeviceLEDArgumentsAreAlwaysClamped(t *testing.T) {
+	var client *deviceMCPClient
+	var gotArgs map[string]any
+	client = newDeviceMCPClient("session-led", func(v any) error {
+		b, _ := json.Marshal(v)
+		var request struct {
+			Payload struct {
+				ID     int64          `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			} `json:"payload"`
+		}
+		_ = json.Unmarshal(b, &request)
+		if request.Payload.Method == "tools/call" {
+			gotArgs = request.Payload.Params["arguments"].(map[string]any)
+			go client.handle(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request.Payload.ID,
+				"result":  map[string]any{"content": []map[string]any{{"type": "text", "text": "ok"}}, "isError": false},
+			})
+		}
+		return nil
+	})
+
+	result, err := client.callTool(context.Background(), "self.robot.set_led_color", map[string]any{"red": 255, "green": -4, "blue": 169})
+	if err != nil || result != "ok" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if numberArg(gotArgs, "red", 0) != deviceLEDMax || numberArg(gotArgs, "green", -1) != 0 || numberArg(gotArgs, "blue", 0) != deviceLEDMax {
+		t.Fatalf("LED args were not clamped: %#v", gotArgs)
 	}
 }
 

@@ -58,7 +58,7 @@ func HandleVision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseURL, apiKey, model := visionProviderConfig(ctx)
-	client := newOpenAIClient(baseURL, apiKey, model, "", "", "", "", "")
+	client := newOpenAIClient(baseURL, apiKey, model, "", "", "", "", "", "")
 	result, err := client.ExplainImage(ctx, image, question)
 	if err != nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})

@@ -1,9 +1,11 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,16 @@ import (
 	"github.com/gogf/gf/v2/os/gcfg"
 	"github.com/gorilla/websocket"
 )
+
+func TestServerNeverInitiatesDeviceListening(t *testing.T) {
+	source, err := os.ReadFile("ws_simulator.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(source, []byte(`"type": "listen"`)) {
+		t.Fatal("server must never send a listen command; the current firmware disconnects after receiving one")
+	}
+}
 
 func TestConversationSilenceDoesNotExtendFollowUpWindow(t *testing.T) {
 	now := time.Now()

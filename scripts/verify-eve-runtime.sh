@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SETTINGS_TOKEN="${STACKCHAN_SETTINGS_TOKEN:-v948pqw0sizxg6l1edfjh2bo}"
+RUNTIME_CONFIG="${STACKCHAN_RUNTIME_CONFIG:-/home/ernest/stackchan-run/manifest/config/config.yaml}"
+SETTINGS_TOKEN="${STACKCHAN_SETTINGS_TOKEN:-}"
 DEVICE_IP="${STACKCHAN_DEVICE_IP:-192.168.219.136}"
 SINCE="${STACKCHAN_VERIFY_SINCE:-15 minutes ago}"
+
+if [[ -z "${SETTINGS_TOKEN}" && -r "${RUNTIME_CONFIG}" ]]; then
+  SETTINGS_TOKEN="$(sed -nE 's/^[[:space:]]*settings_auth_token:[[:space:]]*"?([^"[:space:]#]+)"?.*$/\1/p' "${RUNTIME_CONFIG}" | head -n 1)"
+fi
+if [[ -z "${SETTINGS_TOKEN}" ]]; then
+  echo "settings token is unavailable; set STACKCHAN_SETTINGS_TOKEN or STACKCHAN_RUNTIME_CONFIG" >&2
+  exit 1
+fi
 
 echo "== service =="
 systemctl is-active stackchan.service
@@ -24,6 +33,7 @@ required = {
     "autonomous_actions_enabled": "false",
     "face_contact_enabled": "false",
     "conversation_idle_seconds": "15",
+    "stt_language": "ko",
     "stackchan_motion_speed": "180",
     "stackchan_motion_step_delay_ms": "220",
 }

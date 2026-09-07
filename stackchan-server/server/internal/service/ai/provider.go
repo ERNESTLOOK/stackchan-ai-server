@@ -221,6 +221,7 @@ func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, s
 	ttsAPIKey := override(aiString(ctx, "tts_api_key", ""), compatibleAPIKey)
 	llmBaseURL = override(aiString(ctx, "llm_base_url", ""), llmBaseURL)
 	llmAPIKey = override(aiString(ctx, "llm_api_key", ""), llmAPIKey)
+	sttLanguage := aiString(ctx, "stt_language", "ko")
 	sttModel := override(profile.CompatibleSTTModel, override(aiString(ctx, "stt_model", ""), aiString(ctx, "compatible_stt_model", "whisper-1")))
 	llmModel := override(profile.CompatibleModel, override(aiString(ctx, "llm_model", ""), aiString(ctx, "compatible_model", "")))
 	ttsModel := override(profile.CompatibleTTSModel, override(aiString(ctx, "tts_model", ""), aiString(ctx, "compatible_tts_model", "tts-1")))
@@ -231,6 +232,7 @@ func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, s
 		STTBaseURL:      sttBaseURL,
 		STTAPIKey:       sttAPIKey,
 		STTModel:        sttModel,
+		STTLanguage:     sttLanguage,
 		LLMBaseURL:      llmBaseURL,
 		LLMAPIKey:       llmAPIKey,
 		LLMModel:        llmModel,

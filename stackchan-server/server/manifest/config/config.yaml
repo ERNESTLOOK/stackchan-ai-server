@@ -50,6 +50,7 @@ ai:
   conversation_history_days: 90
   conversation_context_messages: 20
   conversation_idle_seconds: 0
+  stt_language: "ko"
   stackchan_motion_speed: 180
   stackchan_motion_step_delay_ms: 220
   stackchan_expression_colors: '{"calm":[45,24,120],"happy":[168,60,130],"thinking":[80,50,168],"shy":[168,70,120],"pouty":[168,20,45],"surprised":[120,90,168],"sad":[20,40,168],"sleepy":[35,20,90]}'

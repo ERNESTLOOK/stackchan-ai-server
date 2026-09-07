@@ -98,3 +98,4 @@ OpenRouter는 텍스트만 처리하므로 별도로 필요합니다. 가장 간
   - 카메라: "카메라", "사진", "촬영", "찍어", "봐줘"처럼 명시적인 시각 요청이 있을 때만 사용.
   - 말투: 교수님 호칭, 자연스러운 한국어, 보통 1-2문장, 확인하지 못한 사실은 추측하지 않기.
   - 커스터마이징: `stackchan_motion_speed`, `stackchan_motion_step_delay_ms`, `stackchan_expression_colors`로 동작 속도와 표정별 LED 색을 조정.
+  - STT 안정화: `stt_language: "ko"`로 입력 언어를 고정하고, `whisper-1`의 `verbose_json` 신뢰도 정보로 무음·배경잡음 환각을 차단.

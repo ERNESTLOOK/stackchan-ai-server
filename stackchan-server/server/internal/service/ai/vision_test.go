@@ -33,7 +33,7 @@ func TestExplainImageUsesMultimodalChat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := newOpenAIClient(server.URL+"/v1", "key", "vision-model", "", "", "", "", "")
+	client := newOpenAIClient(server.URL+"/v1", "key", "vision-model", "", "", "", "", "", "")
 	got, err := client.ExplainImage(context.Background(), []byte{0xff, 0xd8, 0xff}, "뭐가 보여?")
 	if err != nil || got != "책상이 보여." {
 		t.Fatalf("got=%q err=%v", got, err)

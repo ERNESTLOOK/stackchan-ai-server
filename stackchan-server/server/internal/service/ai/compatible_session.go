@@ -22,6 +22,7 @@ import (
 
 type compatibleConfig struct {
 	STTBaseURL, STTAPIKey, STTModel        string
+	STTLanguage                            string
 	LLMBaseURL, LLMAPIKey, LLMModel        string
 	TTSBaseURL, TTSAPIKey, TTSModel, Voice string
 	TTSInstructions                        string
@@ -58,9 +59,9 @@ func dialCompatibleSession(ctx context.Context, cfg compatibleConfig, ha *haWSCl
 	}
 	childCtx, cancel := context.WithCancel(ctx)
 	return &compatibleSession{
-		sttClient: newOpenAIClient(cfg.STTBaseURL, cfg.STTAPIKey, "", cfg.STTModel, "", "", "", ""),
-		llmClient: newOpenAIClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, "", "", "", "", cfg.Prompt),
-		ttsClient: newOpenAIClient(cfg.TTSBaseURL, cfg.TTSAPIKey, "", "", cfg.TTSModel, cfg.Voice, cfg.TTSInstructions, ""),
+		sttClient: newOpenAIClient(cfg.STTBaseURL, cfg.STTAPIKey, "", cfg.STTModel, cfg.STTLanguage, "", "", "", ""),
+		llmClient: newOpenAIClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, "", "", "", "", "", cfg.Prompt),
+		ttsClient: newOpenAIClient(cfg.TTSBaseURL, cfg.TTSAPIKey, "", "", "", cfg.TTSModel, cfg.Voice, cfg.TTSInstructions, ""),
 		ha:        ha, cb: cb, ctx: childCtx, cancel: cancel, ttsVolumeGain: cfg.TTSVolumeGain,
 	}, nil
 }

@@ -26,6 +26,7 @@ type openAIClient struct {
 	apiKey          string
 	model           string
 	sttModel        string
+	sttLanguage     string
 	ttsModel        string
 	ttsVoice        string
 	ttsInstructions string
@@ -51,7 +52,7 @@ type toolCall struct {
 	} `json:"function"`
 }
 
-func newOpenAIClient(baseURL, apiKey, model, sttModel, ttsModel, ttsVoice, ttsInstructions, sysPrompt string) *openAIClient {
+func newOpenAIClient(baseURL, apiKey, model, sttModel, sttLanguage, ttsModel, ttsVoice, ttsInstructions, sysPrompt string) *openAIClient {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
@@ -67,6 +68,7 @@ func newOpenAIClient(baseURL, apiKey, model, sttModel, ttsModel, ttsVoice, ttsIn
 		apiKey:          apiKey,
 		model:           model,
 		sttModel:        sttModel,
+		sttLanguage:     strings.TrimSpace(sttLanguage),
 		ttsModel:        ttsModel,
 		ttsVoice:        ttsVoice,
 		ttsInstructions: ttsInstructions,
@@ -125,16 +127,63 @@ func (c *openAIClient) Transcribe(ctx context.Context, wavBytes []byte) (string,
 		return "", err
 	}
 	_ = mw.WriteField("model", c.sttModel)
+	if c.sttLanguage != "" {
+		_ = mw.WriteField("language", c.sttLanguage)
+	}
+	_ = mw.WriteField("temperature", "0")
+	// Only Whisper supports verbose_json. It exposes segment confidence fields
+	// that let us reject fluent-looking text invented from room noise.
+	if strings.EqualFold(c.sttModel, "whisper-1") {
+		_ = mw.WriteField("response_format", "verbose_json")
+	}
 	mw.Close()
 
 	data, err := c.doRequest(ctx, "POST", "/v1/audio/transcriptions", &buf, mw.FormDataContentType())
 	if err != nil {
 		return "", err
 	}
-	var resp struct {
-		Text string `json:"text"`
+	var resp sttResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", err
 	}
-	return resp.Text, json.Unmarshal(data, &resp)
+	if resp.isSilence() {
+		g.Log().Infof(gctx.New(), "[STT] filtered probable silence/hallucination segments=%d", len(resp.Segments))
+		return "", nil
+	}
+	return strings.TrimSpace(resp.Text), nil
+}
+
+const (
+	sttNoSpeechProbLimit = 0.6
+	sttAvgLogprobLimit   = -1.0
+)
+
+type sttSegment struct {
+	NoSpeechProb float64 `json:"no_speech_prob"`
+	AvgLogprob   float64 `json:"avg_logprob"`
+}
+
+type sttResponse struct {
+	Text     string       `json:"text"`
+	Segments []sttSegment `json:"segments"`
+}
+
+// A clip is treated as silence only when every returned segment fails at
+// least one speech-confidence gate. Missing segment metadata is accepted so
+// compatible STT providers that return plain JSON continue to work.
+func (r sttResponse) isSilence() bool {
+	if strings.TrimSpace(r.Text) == "" {
+		return true
+	}
+	if len(r.Segments) == 0 {
+		return false
+	}
+	for _, segment := range r.Segments {
+		if segment.NoSpeechProb < sttNoSpeechProbLimit && segment.AvgLogprob > sttAvgLogprobLimit {
+			return false
+		}
+	}
+	return true
 }
 
 // Chat sends the conversation history to the model, handles HA tool calls in a loop,
