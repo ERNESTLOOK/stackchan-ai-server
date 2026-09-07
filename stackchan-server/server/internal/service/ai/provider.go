@@ -136,13 +136,14 @@ type AsyncDeliveryAware interface {
 // All callbacks are invoked from the provider's read goroutine — keep them
 // quick and lock-free where possible.
 type RealtimeCallbacks struct {
-	OnSTT   func(string)  // user speech transcript
-	OnText  func(string)  // model text reply (logging only)
-	OnAudio func([]int16) // 24kHz PCM chunk to play back to the device
-	OnStart func()        // model began speaking
-	OnStop  func()        // model finished speaking
-	OnIdle  func()        // turn ended without playback; release response-busy state
-	OnClose func()        // provider connection ended (any reason — error or normal)
+	OnSTT      func(string)  // user speech transcript
+	OnText     func(string)  // model text reply (logging only)
+	OnAudio    func([]int16) // 24kHz PCM chunk to play back to the device
+	OnStart    func()        // model began speaking
+	OnStop     func()        // model finished speaking
+	OnNoSpeech func()        // silent handshake must not extend the follow-up window
+	OnIdle     func()        // turn ended without playback; release response-busy state
+	OnClose    func()        // provider connection ended (any reason — error or normal)
 }
 
 // dialProvider selects the configured backend and opens a

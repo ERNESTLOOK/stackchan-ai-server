@@ -68,6 +68,19 @@ func TestConversationAllowsFollowUpAndWaitsForPlayback(t *testing.T) {
 	}
 }
 
+func TestEmptyTranscriptionDoesNotRearmFollowUpWindow(t *testing.T) {
+	now := time.Now()
+	a := newConversationActivity(15*time.Second, now)
+	if !a.audio(now.Add(14*time.Second), []int16{3000, -3000}) || !a.commit(now.Add(16*time.Second)) {
+		t.Fatal("noise turn could not enter provider processing")
+	}
+	a.responding(now.Add(17 * time.Second))
+	a.noSpeechDone()
+	if !a.expired(now.Add(17 * time.Second)) {
+		t.Fatal("empty transcription extended the confirmed follow-up window")
+	}
+}
+
 func TestAutonomousActionWaitsForProviderResponse(t *testing.T) {
 	now := time.Now()
 	a := newConversationActivity(15*time.Second, now)

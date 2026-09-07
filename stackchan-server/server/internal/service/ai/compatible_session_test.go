@@ -23,6 +23,7 @@ func TestCompatibleSilenceCompletesProtocolWithoutSpeech(t *testing.T) {
 	defer server.Close()
 
 	idleCalls := 0
+	noSpeechCalls := 0
 	startCalls := 0
 	stopCalls := 0
 	audioSamples := 0
@@ -30,17 +31,18 @@ func TestCompatibleSilenceCompletesProtocolWithoutSpeech(t *testing.T) {
 		sttClient: newOpenAIClient(server.URL, "test-key", "", "whisper-1", "ko", "", "", "", ""),
 		ttsClient: newOpenAIClient(server.URL, "test-key", "", "", "", "gpt-4o-mini-tts", "coral", "", ""),
 		cb: RealtimeCallbacks{
-			OnIdle:  func() { idleCalls++ },
-			OnStart: func() { startCalls++ },
-			OnAudio: func(pcm []int16) { audioSamples += len(pcm) },
-			OnStop:  func() { stopCalls++ },
+			OnIdle:     func() { idleCalls++ },
+			OnNoSpeech: func() { noSpeechCalls++ },
+			OnStart:    func() { startCalls++ },
+			OnAudio:    func(pcm []int16) { audioSamples += len(pcm) },
+			OnStop:     func() { stopCalls++ },
 		},
 	}
 	session.completeTurn(context.Background(), make([]int16, 160))
 	if ttsRequests != 0 {
 		t.Fatalf("silence unexpectedly requested TTS %d times", ttsRequests)
 	}
-	if idleCalls != 0 || startCalls != 1 || stopCalls != 1 || audioSamples != 0 {
-		t.Fatalf("idle=%d start=%d stop=%d audio=%d", idleCalls, startCalls, stopCalls, audioSamples)
+	if idleCalls != 0 || noSpeechCalls != 1 || startCalls != 1 || stopCalls != 1 || audioSamples != 0 {
+		t.Fatalf("idle=%d no_speech=%d start=%d stop=%d audio=%d", idleCalls, noSpeechCalls, startCalls, stopCalls, audioSamples)
 	}
 }

@@ -106,7 +106,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 		return
 	}
 	if text == "" {
-		s.completeSilentTurn("empty_transcription")
+		s.completeSilentTurn("empty_transcription", false)
 		return
 	}
 	if s.cb.OnSTT != nil {
@@ -127,7 +127,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	}
 	reply = constrainVoiceReply(reply)
 	if reply == "" {
-		s.completeSilentTurn("empty_reply")
+		s.completeSilentTurn("empty_reply", true)
 		return
 	}
 	s.deliverReply(ctx, reply)
@@ -166,8 +166,11 @@ func (s *compatibleSession) deliverReply(ctx context.Context, reply string) {
 // while the firmware is still in listening state, so the start/stop callback
 // pair is the smallest reliable terminal handshake for silence and empty model
 // output.
-func (s *compatibleSession) completeSilentTurn(reason string) {
+func (s *compatibleSession) completeSilentTurn(reason string, rearmFollowUp bool) {
 	g.Log().Infof(gctx.New(), "[COMPAT] silent turn completion reason=%s", reason)
+	if !rearmFollowUp && s.cb.OnNoSpeech != nil {
+		s.cb.OnNoSpeech()
+	}
 	if s.cb.OnStart != nil {
 		s.cb.OnStart()
 	}

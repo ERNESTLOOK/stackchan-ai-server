@@ -94,29 +94,30 @@ type wsSession struct {
 	// A nil entry is a sentinel meaning "response ended — send tts:stop".
 	frameQueue chan []byte
 
-	writeMu            sync.Mutex // serialises WebSocket writes
-	providerClosed     int32      // atomic: 1 when OnClose triggered conn.Close()
-	listenStopped      time.Time  // latency baseline for the current user turn
-	firstAudioLogged   int32
-	inputAudioLogged   int32
-	inputDecodeErrors  int32
-	inputFrames        int
-	inputSamples       int
-	serverVAD          bool
-	vadHeardSpeech     bool
-	vadSilenceSamples  int
-	deviceMCP          *deviceMCPClient
-	responseEmotion    string
-	responseLEDEmotion string
-	responseEmotionAt  time.Time
-	lastInteraction    time.Time
-	lastFaceContact    time.Time
-	faceContactBusy    bool
-	autonomousBusy     bool
-	autonomousCount    int64
-	loudStartleBusy    bool
-	lastLoudStartle    time.Time
-	ledGeneration      int64
+	writeMu              sync.Mutex // serialises WebSocket writes
+	providerClosed       int32      // atomic: 1 when OnClose triggered conn.Close()
+	listenStopped        time.Time  // latency baseline for the current user turn
+	firstAudioLogged     int32
+	inputAudioLogged     int32
+	inputDecodeErrors    int32
+	inputFrames          int
+	inputSamples         int
+	serverVAD            bool
+	vadHeardSpeech       bool
+	vadSilenceSamples    int
+	deviceMCP            *deviceMCPClient
+	responseEmotion      string
+	responseLEDEmotion   string
+	responseEmotionAt    time.Time
+	lastInteraction      time.Time
+	preserveIdleOnSilent bool
+	lastFaceContact      time.Time
+	faceContactBusy      bool
+	autonomousBusy       bool
+	autonomousCount      int64
+	loudStartleBusy      bool
+	lastLoudStartle      time.Time
+	ledGeneration        int64
 }
 
 // HandleWS upgrades the connection and runs a Xiaozhi v3 protocol session
@@ -289,6 +290,12 @@ func HandleWS(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 		},
 
+		OnNoSpeech: func() {
+			s.mu.Lock()
+			s.preserveIdleOnSilent = true
+			s.mu.Unlock()
+		},
+
 		OnIdle: func() {
 			s.finishTurnWithoutPlayback(ctx, "provider_idle")
 		},
@@ -356,9 +363,15 @@ func (s *wsSession) pacingLoop(ctx context.Context) {
 					_ = s.sendJSON(map[string]any{"type": "tts", "state": "stop"})
 					s.mu.Lock()
 					s.playbackStarted = false
+					preserveIdle := s.preserveIdleOnSilent
+					s.preserveIdleOnSilent = false
 					s.lastInteraction = time.Now()
 					s.mu.Unlock()
-					s.activity.playbackDone(time.Now())
+					if preserveIdle {
+						s.activity.noSpeechDone()
+					} else {
+						s.activity.playbackDone(time.Now())
+					}
 					if aware, ok := s.rt.(PlaybackStateAware); ok {
 						aware.SetPlaybackBusy(false)
 					}

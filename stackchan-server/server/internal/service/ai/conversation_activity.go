@@ -14,12 +14,13 @@ import (
 // active forever. Closing the audio channel returns stock firmware to local
 // wake-word/button standby. This is not a server-side keyword recognizer.
 type conversationActivity struct {
-	mu          sync.Mutex
-	timeout     time.Duration
-	deadline    time.Time
-	busy        bool
-	heardSpeech bool
-	closed      bool
+	mu            sync.Mutex
+	timeout       time.Duration
+	deadline      time.Time
+	lastConfirmed time.Time
+	busy          bool
+	heardSpeech   bool
+	closed        bool
 }
 
 func conversationIdleSeconds(ctx context.Context) int {
@@ -31,7 +32,7 @@ func conversationIdleSeconds(ctx context.Context) int {
 }
 
 func newConversationActivity(timeout time.Duration, now time.Time) *conversationActivity {
-	return &conversationActivity{timeout: timeout, deadline: now.Add(timeout)}
+	return &conversationActivity{timeout: timeout, deadline: now.Add(timeout), lastConfirmed: now}
 }
 
 func (a *conversationActivity) expiredLocked(now time.Time) bool {
@@ -53,6 +54,7 @@ func (a *conversationActivity) wake(now time.Time) {
 	if !a.closed {
 		a.busy = false
 		a.heardSpeech = false
+		a.lastConfirmed = now
 		a.deadline = now.Add(a.timeout)
 	}
 }
@@ -111,7 +113,21 @@ func (a *conversationActivity) playbackDone(now time.Time) {
 	defer a.mu.Unlock()
 	if !a.closed {
 		a.busy = false
+		a.lastConfirmed = now
 		a.deadline = now.Add(a.timeout)
+	}
+}
+
+// noSpeechDone releases a provider turn without treating microphone noise as
+// a confirmed interaction. The previous confirmed deadline is restored so
+// repeated empty transcriptions cannot keep the firmware out of standby.
+func (a *conversationActivity) noSpeechDone() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.closed {
+		a.busy = false
+		a.heardSpeech = false
+		a.deadline = a.lastConfirmed.Add(a.timeout)
 	}
 }
 
