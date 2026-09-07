@@ -337,6 +337,7 @@ func (c *openAIClient) Speak(ctx context.Context, text string) ([]int16, error) 
 	if c.ttsInstructions != "" && c.ttsModel != "tts-1" && c.ttsModel != "tts-1-hd" {
 		request["instructions"] = c.ttsInstructions
 	}
+	g.Log().Infof(gctx.New(), "[TTS] request model=%s voice=%s instructions=%t", c.ttsModel, c.ttsVoice, c.ttsInstructions != "")
 	body, _ := json.Marshal(request)
 	data, err := c.doRequest(ctx, "POST", "/v1/audio/speech", bytes.NewReader(body), "application/json")
 	if err != nil {

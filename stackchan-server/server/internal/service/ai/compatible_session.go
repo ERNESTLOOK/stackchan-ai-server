@@ -27,6 +27,7 @@ type compatibleConfig struct {
 	TTSBaseURL, TTSAPIKey, TTSModel, Voice string
 	TTSInstructions                        string
 	TTSVolumeGain                          float64
+	TTSPitchRate                           float64
 	Prompt                                 string
 }
 
@@ -43,6 +44,7 @@ type compatibleSession struct {
 	history       []chatMessage
 	turnCancel    context.CancelFunc
 	ttsVolumeGain float64
+	ttsPitchRate  float64
 	deviceTools   *deviceMCPClient
 	closed        bool
 }
@@ -62,7 +64,7 @@ func dialCompatibleSession(ctx context.Context, cfg compatibleConfig, ha *haWSCl
 		sttClient: newOpenAIClient(cfg.STTBaseURL, cfg.STTAPIKey, "", cfg.STTModel, cfg.STTLanguage, "", "", "", ""),
 		llmClient: newOpenAIClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, "", "", "", "", "", cfg.Prompt),
 		ttsClient: newOpenAIClient(cfg.TTSBaseURL, cfg.TTSAPIKey, "", "", "", cfg.TTSModel, cfg.Voice, cfg.TTSInstructions, ""),
-		ha:        ha, cb: cb, ctx: childCtx, cancel: cancel, ttsVolumeGain: cfg.TTSVolumeGain,
+		ha:        ha, cb: cb, ctx: childCtx, cancel: cancel, ttsVolumeGain: cfg.TTSVolumeGain, ttsPitchRate: cfg.TTSPitchRate,
 	}, nil
 }
 
@@ -138,8 +140,10 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 	if err != nil {
 		g.Log().Warningf(gctx.New(), "[COMPAT] TTS: %v", err)
 	} else if len(pcmReply) > 0 && s.cb.OnAudio != nil {
+		originalSamples := len(pcmReply)
+		pcmReply = applyPCMPitchRate(pcmReply, s.ttsPitchRate)
 		clipped := applyPCMVolume(pcmReply, s.ttsVolumeGain)
-		g.Log().Infof(gctx.New(), "[COMPAT] TTS volume gain=%.2f samples=%d clipped=%d", s.ttsVolumeGain, len(pcmReply), clipped)
+		g.Log().Infof(gctx.New(), "[COMPAT] TTS voice=%s pitch_rate=%.2f volume_gain=%.2f samples=%d original_samples=%d clipped=%d", s.ttsClient.ttsVoice, s.ttsPitchRate, s.ttsVolumeGain, len(pcmReply), originalSamples, clipped)
 		s.cb.OnAudio(pcmReply)
 	}
 	if s.cb.OnStop != nil {
@@ -254,6 +258,33 @@ func applyPCMVolume(pcm []int16, gain float64) int {
 		pcm[i] = int16(scaled)
 	}
 	return clipped
+}
+
+func applyPCMPitchRate(pcm []int16, rate float64) []int16 {
+	if len(pcm) == 0 || rate <= 0 || rate == 1 {
+		return pcm
+	}
+	if rate < 0.8 {
+		rate = 0.8
+	} else if rate > 1.4 {
+		rate = 1.4
+	}
+	outputLen := int(float64(len(pcm)) / rate)
+	if outputLen < 1 {
+		outputLen = 1
+	}
+	out := make([]int16, outputLen)
+	for i := range out {
+		pos := float64(i) * rate
+		index := int(pos)
+		if index >= len(pcm)-1 {
+			out[i] = pcm[len(pcm)-1]
+			continue
+		}
+		frac := pos - float64(index)
+		out[i] = int16(float64(pcm[index])*(1-frac) + float64(pcm[index+1])*frac)
+	}
+	return out
 }
 
 func (s *compatibleSession) CancelResponse() error {

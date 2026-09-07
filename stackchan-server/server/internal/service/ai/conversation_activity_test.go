@@ -167,6 +167,20 @@ func TestApplyPCMVolumeClampsThreeTimesGain(t *testing.T) {
 	}
 }
 
+func TestApplyPCMPitchRateSpeedsUpAndClamps(t *testing.T) {
+	pcm := []int16{0, 1000, 2000, 3000, 4000, 5000}
+	got := applyPCMPitchRate(pcm, 1.2)
+	if len(got) != 5 {
+		t.Fatalf("len=%d, want 5", len(got))
+	}
+	if got[0] != 0 || got[1] != 1200 || got[4] != 4800 {
+		t.Fatalf("pitch output=%v", got)
+	}
+	if len(applyPCMPitchRate(pcm, 2.0)) != 4 {
+		t.Fatal("pitch rate was not clamped to the supported upper bound")
+	}
+}
+
 func TestConversationIdleClosesDeviceAudioChannel(t *testing.T) {
 	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

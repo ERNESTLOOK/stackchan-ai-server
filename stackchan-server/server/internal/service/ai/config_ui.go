@@ -151,6 +151,12 @@ func settingsUpdateError(values map[string]string) string {
 		if key == "provider" && !isSupportedProvider(value) {
 			return "unsupported provider"
 		}
+		if key == "tts_pitch_rate" {
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil || n < 0.8 || n > 1.4 {
+				return "tts_pitch_rate is outside the supported range"
+			}
+		}
 		if key == "device_profiles" && strings.TrimSpace(value) != "" {
 			profiles := map[string]deviceProfile{}
 			if err := json.Unmarshal([]byte(value), &profiles); err != nil {

@@ -25,6 +25,7 @@ func TestCompatibleConfigForTokenHubUsesProviderAndStageSettings(t *testing.T) {
 		"tts_api_key":         "tts-key",
 		"tts_model":           "tts-model",
 		"tts_voice":           "voice-name",
+		"tts_pitch_rate":      "1.12",
 	}); err != nil {
 		t.Fatalf("writeSettings() error = %v", err)
 	}
@@ -38,6 +39,9 @@ func TestCompatibleConfigForTokenHubUsesProviderAndStageSettings(t *testing.T) {
 	}
 	if got.TTSBaseURL != "https://tts.example/v1" || got.TTSAPIKey != "tts-key" || got.TTSModel != "tts-model" || got.Voice != "voice-name" {
 		t.Fatalf("TTS config = %#v, want stage-specific settings", got)
+	}
+	if got.TTSPitchRate != 1.12 {
+		t.Fatalf("TTSPitchRate = %v, want 1.12", got.TTSPitchRate)
 	}
 }
 

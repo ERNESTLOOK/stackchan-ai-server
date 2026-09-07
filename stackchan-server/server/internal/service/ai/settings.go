@@ -117,7 +117,7 @@ var settingsUIKeys = []string{
 	"tokenhub_base_url", "tokenhub_api_key", "openrouter_api_key", "openrouter_base_url",
 	"compatible_base_url", "compatible_api_key", "compatible_model", "compatible_stt_model", "compatible_tts_model", "compatible_tts_voice",
 	"stt_base_url", "stt_api_key", "stt_model", "stt_language", "llm_base_url", "llm_api_key", "llm_model",
-	"tts_base_url", "tts_api_key", "tts_model", "tts_voice", "tts_instructions", "tts_volume_gain", "device_profiles",
+	"tts_base_url", "tts_api_key", "tts_model", "tts_voice", "tts_instructions", "tts_volume_gain", "tts_pitch_rate", "device_profiles",
 	"audio_prebuffer_ms", "audio_prebuffer_max_wait_ms",
 	"face_contact_enabled", "face_contact_interval_seconds",
 	"autonomous_actions_enabled", "autonomous_action_interval_seconds",

@@ -229,6 +229,7 @@ func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, s
 	voice := override(profile.CompatibleTTSVoice, override(aiString(ctx, "tts_voice", ""), aiString(ctx, "compatible_tts_voice", "alloy")))
 	ttsInstructions := aiString(ctx, "tts_instructions", "")
 	ttsVolumeGain := min(5.0, max(0.1, aiFloat(ctx, "tts_volume_gain", 1.0)))
+	ttsPitchRate := min(1.4, max(0.8, aiFloat(ctx, "tts_pitch_rate", 1.0)))
 	return compatibleConfig{
 		STTBaseURL:      sttBaseURL,
 		STTAPIKey:       sttAPIKey,
@@ -243,6 +244,7 @@ func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, s
 		Voice:           voice,
 		TTSInstructions: ttsInstructions,
 		TTSVolumeGain:   ttsVolumeGain,
+		TTSPitchRate:    ttsPitchRate,
 		Prompt:          sysPrompt,
 	}
 }
