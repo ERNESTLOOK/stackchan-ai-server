@@ -119,6 +119,7 @@ func (s *compatibleSession) completeTurn(ctx context.Context, pcm []int16) {
 		g.Log().Warningf(gctx.New(), "[COMPAT] chat: %v", err)
 		return
 	}
+	reply = constrainVoiceReply(reply)
 	if reply == "" {
 		return
 	}
@@ -164,15 +165,59 @@ func shouldUseAutomaticVision(text string, device *deviceMCPClient) bool {
 		return false
 	}
 	lowered := strings.ToLower(text)
-	for _, word := range []string{
-		"카메라", "사진", "이미지", "비전", "눈으로", "앞에", "보여", "보이나", "보이니", "봐줘", "봐 줘", "찾아", "어디", "손가락",
-		"camera", "photo", "image", "vision", "look", "see", "find", "where", "finger",
-	} {
-		if strings.Contains(lowered, word) {
+	if containsAny(lowered, []string{"카메라", "사진", "촬영", "찍어", "이미지", "비전", "camera", "photo", "picture", "image", "vision"}) {
+		return true
+	}
+	if containsAny(lowered, []string{"봐줘", "봐 줘", "살펴봐", "보이는지", "보이나", "보이니"}) &&
+		containsAny(lowered, []string{"앞", "이거", "저거", "여기", "화면", "책상", "손가락", "얼굴", "사람", "물건", "주변"}) {
+		return true
+	}
+	if containsAny(lowered, []string{"what do you see", "take a look", "look around"}) {
+		return true
+	}
+	return false
+}
+
+func containsAny(text string, words []string) bool {
+	for _, word := range words {
+		if strings.Contains(text, word) {
 			return true
 		}
 	}
 	return false
+}
+
+func constrainVoiceReply(reply string) string {
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer("\r", " ", "\n", " ", "\t", " ", "`", "", "*", "", "#", "", "•", "")
+	reply = strings.Join(strings.Fields(replacer.Replace(reply)), " ")
+	reply = trimSentences(reply, 2)
+	const maxRunes = 180
+	runes := []rune(reply)
+	if len(runes) > maxRunes {
+		reply = strings.TrimSpace(string(runes[:maxRunes])) + "…"
+	}
+	return reply
+}
+
+func trimSentences(text string, limit int) string {
+	if limit <= 0 {
+		return text
+	}
+	count := 0
+	for i, r := range text {
+		switch r {
+		case '.', '?', '!', '。', '？', '！':
+			count++
+			if count >= limit {
+				return strings.TrimSpace(text[:i+len(string(r))])
+			}
+		}
+	}
+	return text
 }
 
 func (s *compatibleSession) SetDeviceTools(tools *deviceMCPClient) {

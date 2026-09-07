@@ -42,15 +42,15 @@ func TestDeviceMCPInitializeListsAndCallsTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := client.openAITools()
-	if len(tools) != 1 {
-		t.Fatalf("tools = %d, want 1", len(tools))
+	if len(tools) != 3 {
+		t.Fatalf("tools = %d, want 3", len(tools))
 	}
 	name := tools[0]["function"].(map[string]any)["name"]
-	if name != "device__self__camera__take_photo" {
+	if name != "stackchan_see" {
 		t.Fatalf("tool name = %v", name)
 	}
 	description := tools[0]["function"].(map[string]any)["description"].(string)
-	if !strings.Contains(description, "what Eve can see") {
+	if !strings.Contains(description, "explicit visual request") {
 		t.Fatalf("camera description was not enhanced: %q", description)
 	}
 	if names := client.toolNames(); len(names) != 1 || names[0] != "self.camera.take_photo" {
@@ -59,7 +59,7 @@ func TestDeviceMCPInitializeListsAndCallsTools(t *testing.T) {
 	if !client.hasTool("self.camera.take_photo") || client.hasTool("self.robot.set_head_angles") {
 		t.Fatal("hasTool returned unexpected availability")
 	}
-	result, err := client.call(context.Background(), name.(string), map[string]any{"question": "뭐가 보여?"})
+	result, err := client.call(context.Background(), name.(string), map[string]any{"question": "카메라로 뭐가 보여?"})
 	if err != nil || result != "사진 설명" {
 		t.Fatalf("call result=%q err=%v", result, err)
 	}
@@ -140,11 +140,23 @@ func TestAutomaticVisionContextUsesCameraForVisualQuestion(t *testing.T) {
 	})
 	client.nameMap = map[string]string{openAIDeviceToolName("self.camera.take_photo"): "self.camera.take_photo"}
 
-	history := appendAutomaticVisionContext(context.Background(), []chatMessage{{Role: "user", Content: "손가락이 어디 있어?"}}, "손가락이 어디 있어?", client)
+	history := appendAutomaticVisionContext(context.Background(), []chatMessage{{Role: "user", Content: "카메라로 손가락이 어디 있어?"}}, "카메라로 손가락이 어디 있어?", client)
 	if !called {
 		t.Fatal("automatic vision did not call the camera")
 	}
 	if len(history) != 2 || !strings.Contains(history[1].Content, "손가락이 화면 왼쪽") {
+		t.Fatalf("history=%#v", history)
+	}
+}
+
+func TestAutomaticVisionContextSkipsAmbiguousVisualQuestion(t *testing.T) {
+	client := newDeviceMCPClient("session-vision", func(any) error {
+		t.Fatal("camera should not be called for ambiguous visual language")
+		return nil
+	})
+	client.nameMap = map[string]string{openAIDeviceToolName("self.camera.take_photo"): "self.camera.take_photo"}
+	history := appendAutomaticVisionContext(context.Background(), []chatMessage{{Role: "user", Content: "손가락이 어디 있어?"}}, "손가락이 어디 있어?", client)
+	if len(history) != 1 {
 		t.Fatalf("history=%#v", history)
 	}
 }
@@ -158,6 +170,17 @@ func TestAutomaticVisionContextSkipsNonVisualQuestion(t *testing.T) {
 	history := appendAutomaticVisionContext(context.Background(), []chatMessage{{Role: "user", Content: "오늘 일정 알려줘"}}, "오늘 일정 알려줘", client)
 	if len(history) != 1 {
 		t.Fatalf("history=%#v", history)
+	}
+}
+
+func TestConstrainVoiceReplyLimitsLengthAndSentences(t *testing.T) {
+	reply := constrainVoiceReply("교수님, 첫 문장이야. 둘째 문장이야! 셋째 문장은 말하지 말아야 해.")
+	if strings.Contains(reply, "셋째") {
+		t.Fatalf("reply was not limited to two sentences: %q", reply)
+	}
+	long := constrainVoiceReply(strings.Repeat("가", 220))
+	if len([]rune(long)) > 181 {
+		t.Fatalf("reply was not capped: %d", len([]rune(long)))
 	}
 }
 

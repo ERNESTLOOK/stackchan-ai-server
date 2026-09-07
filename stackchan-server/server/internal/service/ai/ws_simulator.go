@@ -49,7 +49,6 @@ const frameQueueSize = 600 // ~36 seconds of audio headroom
 const (
 	serverVADThreshold   = int64(400 * 400)
 	serverVADSilenceTime = 600 * time.Millisecond
-	reactionReturnDelay  = 650 * time.Millisecond
 )
 
 type deviceReaction struct {
@@ -579,24 +578,7 @@ func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
 	if device.hasTool("self.robot.set_led_color") {
 		go s.animateLED(ctx, device, emotion, reaction)
 	}
-	if !device.hasTool("self.robot.set_head_angles") {
-		return
-	}
-	if _, err := device.callTool(ctx, "self.robot.set_head_angles", map[string]any{"yaw": reaction.Yaw, "pitch": reaction.Pitch, "speed": 180}); err != nil {
-		g.Log().Warningf(ctx, "[REACTION] device=%s head emotion=%s: %v", s.deviceID, emotion, err)
-		return
-	}
-	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s yaw=%d pitch=%d", s.deviceID, emotion, reaction.Yaw, reaction.Pitch)
-	timer := time.NewTimer(reactionReturnDelay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return
-	case <-timer.C:
-	}
-	if _, err := device.callTool(ctx, "self.robot.set_head_angles", map[string]any{"yaw": 0, "pitch": 8, "speed": 150}); err != nil {
-		g.Log().Warningf(ctx, "[REACTION] device=%s head return: %v", s.deviceID, err)
-	}
+	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s led_only=true", s.deviceID, emotion)
 }
 
 func (s *wsSession) animateLED(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) {
@@ -710,31 +692,11 @@ func (s *wsSession) runAutonomousAction(ctx context.Context) {
 	sequence := atomic.AddInt64(&s.autonomousCount, 1)
 	reaction := autonomousReaction(sequence)
 	hasLED := device.hasTool("self.robot.set_led_color")
-	hasHead := device.hasTool("self.robot.set_head_angles")
-	if !hasLED && !hasHead {
+	if !hasLED {
 		return
 	}
-	if hasLED {
-		go s.animateLED(ctx, device, "heartbeat", reaction)
-	}
-	if hasHead {
-		if _, err := device.callTool(ctx, "self.robot.set_head_angles", map[string]any{"yaw": reaction.Yaw, "pitch": reaction.Pitch, "speed": 90}); err != nil {
-			g.Log().Warningf(ctx, "[AUTONOMY] device=%s head heartbeat: %v", s.deviceID, err)
-			return
-		}
-		timer := time.NewTimer(450 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		if _, err := device.callTool(ctx, "self.robot.set_head_angles", map[string]any{"yaw": 0, "pitch": 8, "speed": 80}); err != nil {
-			g.Log().Warningf(ctx, "[AUTONOMY] device=%s head return: %v", s.deviceID, err)
-			return
-		}
-	}
-	g.Log().Infof(ctx, "[AUTONOMY] device=%s heartbeat action=%d led=%t head=%t", s.deviceID, sequence, hasLED, hasHead)
+	go s.animateLED(ctx, device, "heartbeat", reaction)
+	g.Log().Infof(ctx, "[AUTONOMY] device=%s heartbeat action=%d led=%t head=false", s.deviceID, sequence, hasLED)
 }
 
 func (s *wsSession) alignFaceIfDue(ctx context.Context, trigger string) {

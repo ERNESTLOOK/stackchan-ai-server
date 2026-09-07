@@ -192,10 +192,12 @@ func dialProvider(
 
 func deviceCapabilityPrompt() string {
 	return "\n\nDevice capability rules:\n" +
-		"- If device tools are available and the user asks what you can see, asks about the camera, asks about an object/person/finger/location in front of you, or asks you to look, call the camera tool before answering.\n" +
-		"- If device tools are available and the user asks you to move, look left/right/up, nod, shake your head, change speaker volume, change brightness, or use your onboard LED, call the matching device tool.\n" +
-		"- Do not say the camera, movement, sensors, speaker, screen, or LED are unavailable unless the matching tool call actually fails or no matching tool exists.\n" +
-		"- Keep physical reactions small and safe unless the user explicitly asks for a larger movement."
+		"- Device tools are high-level StackChan community-style actions such as see, face, move, nod, shake, status, health, and sense.\n" +
+		"- Camera/vision is opt-in: call stackchan_see only when the user explicitly asks Eve to use the camera, take a photo, or look at what is physically in front of her. Never infer visual facts without a camera result.\n" +
+		"- Motion tools are command-only: call stackchan_move, stackchan_nod, or stackchan_shake only when the user explicitly asks for that physical movement. Do not use them for idle liveliness; the firmware's own idle/blink/breath/touch/speaking loops own that behavior.\n" +
+		"- Use stackchan_face only as a short expression cue when it materially helps the interaction; do not micromanage LEDs or servos.\n" +
+		"- If a fact was not heard from the user, remembered from conversation history, or returned by a tool, say briefly that it needs confirmation. Do not invent observations, capabilities, or events.\n" +
+		"- For voice replies, answer in natural Korean in one or two short sentences, call the user 교수님, and ask at most one question."
 }
 
 func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, sysPrompt string) compatibleConfig {

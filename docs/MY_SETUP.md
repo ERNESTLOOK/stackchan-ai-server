@@ -91,3 +91,9 @@ OpenRouter는 텍스트만 처리하므로 별도로 필요합니다. 가장 간
 ## 6. 진행 메모 (여기에 계속 업데이트)
 
 - 2026-09-06: 기기 확인(M5StackChan ESP32-S3), 저장소 fork 완료.
+- 2026-09-07: 이브(Eve) 운영 기준을 "기본 활기 + 더 똑똑한 AI"로 고정.
+  - 몸동작: 기본 펌웨어의 idle/blink/breath/touch/speaking 루프를 우선 사용.
+  - 서버 AI: 한국어 대화, 기억, 명시 요청 기반 카메라/동작 도구만 담당.
+  - MCP 도구: LLM에는 저수준 서보/LED 대신 `stackchan_see`, `stackchan_face`, `stackchan_move`, `stackchan_nod`, `stackchan_shake`, `stackchan_status`, `stackchan_health` 같은 고수준 행동만 노출.
+  - 카메라: "카메라", "사진", "촬영", "찍어", "봐줘"처럼 명시적인 시각 요청이 있을 때만 사용.
+  - 말투: 교수님 호칭, 자연스러운 한국어, 보통 1-2문장, 확인하지 못한 사실은 추측하지 않기.

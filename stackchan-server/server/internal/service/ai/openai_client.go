@@ -33,7 +33,7 @@ type openAIClient struct {
 	http            *http.Client
 }
 
-const compatibleChatMaxTokens = 512
+const compatibleChatMaxTokens = 220
 
 type chatMessage struct {
 	Role       string     `json:"role"`

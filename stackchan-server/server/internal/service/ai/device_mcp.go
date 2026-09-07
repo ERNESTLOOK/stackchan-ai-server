@@ -179,9 +179,9 @@ func openAIDeviceToolName(name string) string {
 func enhancedDeviceToolDescription(tool deviceMCPTool) string {
 	switch tool.Name {
 	case "self.camera.take_photo":
-		return tool.Description + "\nUse this whenever the user asks what Eve can see, asks about the camera, or asks where an object/finger/person is. Pass the user's visual question as `question` in Korean."
+		return tool.Description + "\nUse only for explicit visual requests where the user clearly asks Eve to use the camera, take a photo, or look at what is in front of her. Pass the user's visual question as `question` in Korean."
 	case "self.robot.set_head_angles":
-		return tool.Description + "\nUse this for explicit motion requests and small natural reactions. Keep normal reactions within yaw -20..20 and pitch 0..20 unless the user asks for a larger movement."
+		return tool.Description + "\nUse only for explicit motion requests. Keep yaw in -20..20, pitch in 5..20, and speed at least 100 unless the device reports a different safe range."
 	case "self.robot.set_led_color":
 		return tool.Description + "\nUse this as Eve's subtle emotional accent light, not as a room light."
 	default:
@@ -192,16 +192,7 @@ func enhancedDeviceToolDescription(tool deviceMCPTool) string {
 func (c *deviceMCPClient) openAITools() []map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	tools := make([]map[string]any, 0, len(c.tools))
-	for _, tool := range c.tools {
-		tools = append(tools, map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name": openAIDeviceToolName(tool.Name), "description": enhancedDeviceToolDescription(tool), "parameters": tool.InputSchema,
-			},
-		})
-	}
-	return tools
+	return c.communityOpenAIToolsLocked()
 }
 
 func (c *deviceMCPClient) callTool(ctx context.Context, deviceName string, arguments map[string]any) (string, error) {
@@ -233,6 +224,9 @@ func (c *deviceMCPClient) callTool(ctx context.Context, deviceName string, argum
 }
 
 func (c *deviceMCPClient) call(ctx context.Context, openAIName string, arguments map[string]any) (string, error) {
+	if strings.HasPrefix(openAIName, "stackchan_") {
+		return c.callCommunityTool(ctx, openAIName, arguments)
+	}
 	c.mu.RLock()
 	deviceName := c.nameMap[openAIName]
 	c.mu.RUnlock()
@@ -244,4 +238,280 @@ func (c *deviceMCPClient) call(ctx context.Context, openAIName string, arguments
 
 type deviceToolAware interface {
 	SetDeviceTools(*deviceMCPClient)
+}
+
+func (c *deviceMCPClient) communityOpenAIToolsLocked() []map[string]any {
+	tools := []map[string]any{}
+	if c.hasToolLocked("self.camera.take_photo") {
+		tools = append(tools, communityTool("stackchan_see",
+			"Use Eve's camera for an explicit visual request. Call only when the user clearly asks for camera/photo/vision/looking at the scene. The answer must be based only on the returned observation.",
+			objectSchema(map[string]any{
+				"question": map[string]any{"type": "string", "description": "The user's visual question in Korean."},
+			}, []string{"question"})))
+	}
+	if c.hasToolLocked("self.robot.set_head_angles") {
+		tools = append(tools,
+			communityTool("stackchan_move",
+				"Move Eve's head for an explicit user motion request. This is not for idle animation; the firmware keeps Eve lively by itself.",
+				objectSchema(map[string]any{
+					"yaw":   map[string]any{"type": "number", "minimum": -20, "maximum": 20, "description": "Left/right head angle. Negative is left, positive is right."},
+					"pitch": map[string]any{"type": "number", "minimum": 5, "maximum": 20, "description": "Up/down head angle in the safe normal range."},
+					"speed": map[string]any{"type": "number", "minimum": 100, "maximum": 400, "description": "Servo speed. Use 140-220 for normal motion."},
+				}, []string{"yaw", "pitch"})),
+			communityTool("stackchan_nod",
+				"Make Eve nod once when the user explicitly asks her to nod or agree physically.",
+				objectSchema(map[string]any{}, nil)),
+			communityTool("stackchan_shake",
+				"Make Eve shake her head once when the user explicitly asks her to shake her head or disagree physically.",
+				objectSchema(map[string]any{}, nil)),
+		)
+	}
+	if c.hasAnyToolLocked([]string{
+		"self.avatar.set_expression", "self.avatar.set_face", "self.robot.set_expression",
+		"self.robot.set_avatar", "self.display.set_avatar", "self.display.set_expression",
+		"self.face.set_expression", "self.robot.set_led_color",
+	}) {
+		tools = append(tools, communityTool("stackchan_face",
+			"Set Eve's high-level expression. Prefer this over low-level LED or servo tools. Expressions follow common Stack-chan avatar-style moods.",
+			objectSchema(map[string]any{
+				"expression": map[string]any{"type": "string", "enum": []string{"calm", "happy", "thinking", "shy", "pouty", "surprised", "sad", "sleepy"}, "description": "Eve's expression."},
+			}, []string{"expression"})))
+	}
+	tools = append(tools, communityTool("stackchan_status",
+		"Report Eve's currently available high-level body capabilities. Use only when the user asks what the device can do or asks for device status.",
+		objectSchema(map[string]any{}, nil)))
+	tools = append(tools, communityTool("stackchan_health",
+		"Check Eve's local device bridge health and available body tools. Use only for troubleshooting.",
+		objectSchema(map[string]any{}, nil)))
+	if c.hasAnyToolLocked([]string{"self.sensor.get_environment", "self.sensors.get_environment", "self.env.get", "self.robot.get_sensors"}) {
+		tools = append(tools, communityTool("stackchan_sense",
+			"Read Eve's environmental sensors when available.",
+			objectSchema(map[string]any{}, nil)))
+	}
+	return tools
+}
+
+func communityTool(name, description string, parameters map[string]any) map[string]any {
+	return map[string]any{
+		"type": "function",
+		"function": map[string]any{
+			"name":        name,
+			"description": description,
+			"parameters":  parameters,
+		},
+	}
+}
+
+func objectSchema(properties map[string]any, required []string) map[string]any {
+	schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+func (c *deviceMCPClient) hasToolLocked(deviceName string) bool {
+	for _, original := range c.nameMap {
+		if original == deviceName {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *deviceMCPClient) hasAnyToolLocked(deviceNames []string) bool {
+	for _, name := range deviceNames {
+		if c.hasToolLocked(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *deviceMCPClient) callCommunityTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
+	switch name {
+	case "stackchan_see":
+		question := strings.TrimSpace(stringArg(arguments, "question"))
+		if question == "" {
+			question = "교수님이 명시적으로 카메라 확인을 요청했다. 화면에 보이는 것을 짧고 정확하게 설명해줘."
+		}
+		return c.callTool(ctx, "self.camera.take_photo", map[string]any{"question": question})
+	case "stackchan_move":
+		yaw := int(clampFloat(numberArg(arguments, "yaw", 0), -20, 20))
+		pitch := int(clampFloat(numberArg(arguments, "pitch", 8), 5, 20))
+		speed := int(clampFloat(numberArg(arguments, "speed", 160), 100, 400))
+		return c.callHead(ctx, yaw, pitch, speed)
+	case "stackchan_nod":
+		return c.callHeadSequence(ctx, [][3]int{{0, 16, 180}, {0, 6, 180}, {0, 14, 180}, {0, 8, 160}})
+	case "stackchan_shake":
+		return c.callHeadSequence(ctx, [][3]int{{-14, 8, 190}, {14, 8, 190}, {-10, 8, 180}, {0, 8, 160}})
+	case "stackchan_face":
+		expression := normalizeCommunityExpression(stringArg(arguments, "expression"))
+		return c.callExpression(ctx, expression)
+	case "stackchan_status":
+		return c.communityStatusJSON("status"), nil
+	case "stackchan_health":
+		return c.communityStatusJSON("healthy"), nil
+	case "stackchan_sense":
+		return c.callFirstAvailable(ctx, []string{"self.sensor.get_environment", "self.sensors.get_environment", "self.env.get", "self.robot.get_sensors"}, nil)
+	default:
+		return "", fmt.Errorf("unknown StackChan community tool %q", name)
+	}
+}
+
+func (c *deviceMCPClient) callHead(ctx context.Context, yaw, pitch, speed int) (string, error) {
+	if !c.hasTool("self.robot.set_head_angles") {
+		return "", fmt.Errorf("head movement tool is unavailable")
+	}
+	return c.callTool(ctx, "self.robot.set_head_angles", map[string]any{"yaw": yaw, "pitch": pitch, "speed": speed})
+}
+
+func (c *deviceMCPClient) callHeadSequence(ctx context.Context, steps [][3]int) (string, error) {
+	for _, step := range steps {
+		if _, err := c.callHead(ctx, step[0], step[1], step[2]); err != nil {
+			return "", err
+		}
+		timer := time.NewTimer(220 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return "ok", nil
+}
+
+func (c *deviceMCPClient) callExpression(ctx context.Context, expression string) (string, error) {
+	args := map[string]any{"expression": expression, "name": expression, "face": expression, "emotion": expression}
+	if result, err := c.callFirstAvailable(ctx, []string{
+		"self.avatar.set_expression", "self.avatar.set_face", "self.robot.set_expression",
+		"self.robot.set_avatar", "self.display.set_avatar", "self.display.set_expression",
+		"self.face.set_expression",
+	}, args); err == nil {
+		return result, nil
+	}
+	if c.hasTool("self.robot.set_led_color") {
+		color := communityExpressionColor(expression)
+		return c.callTool(ctx, "self.robot.set_led_color", map[string]any{"red": color[0], "green": color[1], "blue": color[2]})
+	}
+	return "", fmt.Errorf("expression tool is unavailable")
+}
+
+func (c *deviceMCPClient) callFirstAvailable(ctx context.Context, names []string, args map[string]any) (string, error) {
+	for _, name := range names {
+		if c.hasTool(name) {
+			if args == nil {
+				args = map[string]any{}
+			}
+			return c.callTool(ctx, name, args)
+		}
+	}
+	return "", fmt.Errorf("no matching device tool is available")
+}
+
+func (c *deviceMCPClient) communityStatusJSON(status string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	capabilities := map[string]bool{
+		"see":    c.hasToolLocked("self.camera.take_photo"),
+		"move":   c.hasToolLocked("self.robot.set_head_angles"),
+		"face":   c.hasAnyToolLocked([]string{"self.avatar.set_expression", "self.avatar.set_face", "self.robot.set_expression", "self.robot.set_avatar", "self.display.set_avatar", "self.display.set_expression", "self.face.set_expression", "self.robot.set_led_color"}),
+		"sense":  c.hasAnyToolLocked([]string{"self.sensor.get_environment", "self.sensors.get_environment", "self.env.get", "self.robot.get_sensors"}),
+		"health": true,
+		"status": true,
+	}
+	body := map[string]any{"status": status, "capabilities": capabilities, "raw_tools": c.toolNamesLocked()}
+	b, _ := json.Marshal(body)
+	return string(b)
+}
+
+func (c *deviceMCPClient) toolNamesLocked() []string {
+	names := make([]string, 0, len(c.tools))
+	for _, tool := range c.tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+func normalizeCommunityExpression(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "happy", "joy", "laughing", "excited":
+		return "happy"
+	case "thinking", "curious", "doubtful":
+		return "thinking"
+	case "shy", "embarrassed":
+		return "shy"
+	case "pouty", "angry", "sulky":
+		return "pouty"
+	case "surprised", "surprise":
+		return "surprised"
+	case "sad", "crying":
+		return "sad"
+	case "sleepy":
+		return "sleepy"
+	default:
+		return "calm"
+	}
+}
+
+func communityExpressionColor(expression string) [3]int {
+	switch expression {
+	case "happy":
+		return [3]int{168, 60, 130}
+	case "thinking":
+		return [3]int{80, 50, 168}
+	case "shy":
+		return [3]int{168, 70, 120}
+	case "pouty":
+		return [3]int{168, 20, 45}
+	case "surprised":
+		return [3]int{120, 90, 168}
+	case "sad":
+		return [3]int{20, 40, 168}
+	case "sleepy":
+		return [3]int{35, 20, 90}
+	default:
+		return [3]int{45, 24, 120}
+	}
+}
+
+func stringArg(args map[string]any, key string) string {
+	if args == nil {
+		return ""
+	}
+	value, _ := args[key].(string)
+	return value
+}
+
+func numberArg(args map[string]any, key string, fallback float64) float64 {
+	if args == nil {
+		return fallback
+	}
+	switch value := args[key].(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case json.Number:
+		n, err := value.Float64()
+		if err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func clampFloat(value, low, high float64) float64 {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
 }
