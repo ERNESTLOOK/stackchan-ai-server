@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,6 +76,24 @@ func TestCompatibleChatRetriesPromptLimitWithCurrentTurnOnly(t *testing.T) {
 	}, nil, nil)
 	if err != nil || reply != "됐어, 교수님!" || requests != 2 {
 		t.Fatalf("reply=%q requests=%d err=%v", reply, requests, err)
+	}
+}
+
+func TestPromptLimitTrimPreservesTwoRecentHistoryPairs(t *testing.T) {
+	messages := []chatMessage{{Role: "system", Content: "persona"}}
+	for index := 0; index < 4; index++ {
+		messages = append(messages,
+			chatMessage{Role: "user", Content: fmt.Sprintf("질문-%d", index)},
+			chatMessage{Role: "assistant", Content: fmt.Sprintf("답변-%d", index)},
+		)
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: "현재 질문"})
+	trimmed, dropped := trimOlderConversationContext(messages, fmt.Errorf("Prompt tokens limit exceeded"))
+	if dropped != 4 || len(trimmed) != 6 {
+		t.Fatalf("dropped=%d len=%d messages=%#v", dropped, len(trimmed), trimmed)
+	}
+	if trimmed[1].Content != "질문-2" || trimmed[len(trimmed)-1].Content != "현재 질문" {
+		t.Fatalf("wrong history preserved: %#v", trimmed)
 	}
 }
 

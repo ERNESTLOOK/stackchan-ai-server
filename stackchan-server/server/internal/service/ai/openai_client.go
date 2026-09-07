@@ -211,7 +211,7 @@ func (c *openAIClient) Chat(ctx context.Context, history []chatMessage, ha *haWS
 		data, err := c.doRequest(ctx, "POST", "/v1/chat/completions", bytes.NewReader(body), "application/json")
 		if err != nil {
 			if trimmed, dropped := trimOlderConversationContext(msgs, err); dropped > 0 {
-				g.Log().Infof(logCtx, "[COMPAT] provider prompt limit; retrying with current turn only dropped_messages=%d", dropped)
+				g.Log().Infof(logCtx, "[COMPAT] provider prompt limit; retrying with reduced history dropped_messages=%d", dropped)
 				msgs = trimmed
 				continue
 			}
@@ -275,10 +275,20 @@ func trimOlderConversationContext(messages []chatMessage, requestErr error) ([]c
 	if latestUser <= 1 {
 		return messages, 0
 	}
-	trimmed := make([]chatMessage, 0, 1+len(messages)-latestUser)
+	// Preserve up to two recent user/assistant pairs on the first retry. If the
+	// provider still rejects that smaller request, the next retry keeps only the
+	// current user turn and any tool results attached to it.
+	const recentHistoryMessages = 4
+	olderMessages := latestUser - 1
+	drop := olderMessages - recentHistoryMessages
+	if drop <= 0 {
+		drop = olderMessages
+	}
+	keepFrom := 1 + drop
+	trimmed := make([]chatMessage, 0, 1+len(messages)-keepFrom)
 	trimmed = append(trimmed, messages[0])
-	trimmed = append(trimmed, messages[latestUser:]...)
-	return trimmed, latestUser - 1
+	trimmed = append(trimmed, messages[keepFrom:]...)
+	return trimmed, drop
 }
 
 // Speak sends text to OpenAI TTS and returns 24kHz mono int16 PCM.
