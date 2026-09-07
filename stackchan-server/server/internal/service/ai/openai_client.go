@@ -201,19 +201,32 @@ func (c *openAIClient) Chat(ctx context.Context, history []chatMessage, ha *haWS
 		tools = append(tools, device.openAITools()...)
 	}
 
+	fallbackTried := false
 	for {
-		body, _ := json.Marshal(map[string]any{
+		request := map[string]any{
 			"model":      c.model,
 			"messages":   msgs,
-			"tools":      tools,
 			"max_tokens": compatibleChatMaxTokens,
-		})
+		}
+		if len(tools) > 0 {
+			request["tools"] = tools
+		}
+		body, _ := json.Marshal(request)
 		data, err := c.doRequest(ctx, "POST", "/v1/chat/completions", bytes.NewReader(body), "application/json")
 		if err != nil {
 			if trimmed, dropped := trimOlderConversationContext(msgs, err); dropped > 0 {
 				g.Log().Infof(logCtx, "[COMPAT] provider prompt limit; retrying with reduced history dropped_messages=%d", dropped)
 				msgs = trimmed
 				continue
+			}
+			if !fallbackTried && isPromptLimitError(err) {
+				if compact, ok := compactPromptLimitFallback(msgs); ok {
+					g.Log().Infof(logCtx, "[COMPAT] provider prompt limit; retrying with compact no-tool prompt")
+					msgs = compact
+					tools = nil
+					fallbackTried = true
+					continue
+				}
 			}
 			return "", err
 		}
@@ -262,7 +275,7 @@ func (c *openAIClient) Chat(ctx context.Context, history []chatMessage, ha *haWS
 }
 
 func trimOlderConversationContext(messages []chatMessage, requestErr error) ([]chatMessage, int) {
-	if requestErr == nil || !strings.Contains(strings.ToLower(requestErr.Error()), "prompt tokens limit exceeded") || len(messages) < 3 {
+	if !isPromptLimitError(requestErr) || len(messages) < 3 {
 		return messages, 0
 	}
 	latestUser := -1
@@ -289,6 +302,28 @@ func trimOlderConversationContext(messages []chatMessage, requestErr error) ([]c
 	trimmed = append(trimmed, messages[0])
 	trimmed = append(trimmed, messages[keepFrom:]...)
 	return trimmed, drop
+}
+
+func isPromptLimitError(requestErr error) bool {
+	return requestErr != nil && strings.Contains(strings.ToLower(requestErr.Error()), "prompt tokens limit exceeded")
+}
+
+func compactPromptLimitFallback(messages []chatMessage) ([]chatMessage, bool) {
+	latestUser := ""
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "user" {
+			latestUser = strings.TrimSpace(messages[index].Content)
+			break
+		}
+	}
+	if latestUser == "" {
+		return nil, false
+	}
+	const compactSystem = "You are Eve, a tiny cute lively AI robot. Always answer in Korean, call the user 교수님, use 1-2 short sentences, and do not guess facts not observed."
+	return []chatMessage{
+		{Role: "system", Content: compactSystem},
+		{Role: "user", Content: latestUser},
+	}, true
 }
 
 // Speak sends text to OpenAI TTS and returns 24kHz mono int16 PCM.

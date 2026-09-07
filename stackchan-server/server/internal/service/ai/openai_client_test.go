@@ -79,6 +79,51 @@ func TestCompatibleChatRetriesPromptLimitWithCurrentTurnOnly(t *testing.T) {
 	}
 }
 
+func TestCompatibleChatRetriesPromptLimitWithCompactNoToolPrompt(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		messages, ok := body["messages"].([]any)
+		if !ok {
+			t.Fatalf("messages=%#v", body["messages"])
+		}
+		if requests == 1 {
+			if _, ok := body["tools"]; ok {
+				t.Fatalf("first request unexpectedly included tools: %#v", body["tools"])
+			}
+			w.WriteHeader(http.StatusPaymentRequired)
+			_, _ = w.Write([]byte(`{"error":{"message":"Prompt tokens limit exceeded: 2300 > 2024"}}`))
+			return
+		}
+		if _, ok := body["tools"]; ok {
+			t.Fatalf("fallback request included tools: %#v", body["tools"])
+		}
+		if len(messages) != 2 {
+			t.Fatalf("fallback messages=%#v", messages)
+		}
+		system := messages[0].(map[string]any)
+		user := messages[1].(map[string]any)
+		if system["role"] != "system" || !strings.Contains(system["content"].(string), "Always answer in Korean") {
+			t.Fatalf("fallback system=%#v", system)
+		}
+		if user["role"] != "user" || user["content"] != "이브야 말해봐" {
+			t.Fatalf("fallback user=%#v", user)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"네, 교수님! 들려요."}}]}`))
+	}))
+	defer server.Close()
+
+	client := newOpenAIClient(server.URL, "test-key", "test-model", "", "", "", "", "", strings.Repeat("persona ", 400))
+	reply, err := client.Chat(context.Background(), []chatMessage{{Role: "user", Content: "이브야 말해봐"}}, nil, nil)
+	if err != nil || reply != "네, 교수님! 들려요." || requests != 2 {
+		t.Fatalf("reply=%q requests=%d err=%v", reply, requests, err)
+	}
+}
+
 func TestPromptLimitTrimPreservesTwoRecentHistoryPairs(t *testing.T) {
 	messages := []chatMessage{{Role: "system", Content: "persona"}}
 	for index := 0; index < 4; index++ {
