@@ -227,6 +227,7 @@ func TestEmotionForText(t *testing.T) {
 		"미안해, 속상했겠다":       "sad",
 		"흥, 나 삐질 거야":       "doubtful",
 		"나 진짜 화나고 짜증나":     "angry",
+		"앗, 깜짝 놀랐어!":       "surprised",
 		"어라, 왜 그런 걸까?":     "doubtful",
 		"지금 확인할게":          "neutral",
 	}
@@ -238,7 +239,7 @@ func TestEmotionForText(t *testing.T) {
 }
 
 func TestReactionForEmotionUsesSafeMotionRange(t *testing.T) {
-	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful"} {
+	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful", "surprised"} {
 		reaction := reactionForEmotion(emotion)
 		if reaction.Yaw < -20 || reaction.Yaw > 20 || reaction.Pitch < 0 || reaction.Pitch > 20 {
 			t.Fatalf("%s reaction out of normal range: %+v", emotion, reaction)
@@ -270,7 +271,7 @@ func TestLEDPatternsReflectEmotionTempo(t *testing.T) {
 }
 
 func TestSpeechHeadGesturesAreExpressiveAndSafe(t *testing.T) {
-	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful"} {
+	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful", "surprised"} {
 		steps := headGestureSteps(emotion, reactionForEmotion(emotion), 180)
 		if len(steps) < 3 {
 			t.Fatalf("%s gesture is not expressive enough: %#v", emotion, steps)

@@ -48,7 +48,7 @@ const frameQueueSize = 600 // ~36 seconds of audio headroom
 
 const (
 	serverVADThreshold   = int64(400 * 400)
-	serverVADSilenceTime = 600 * time.Millisecond
+	serverVADSilenceTime = 360 * time.Millisecond
 )
 
 type deviceReaction struct {
@@ -543,6 +543,11 @@ func emotionForText(text string) string {
 			return "angry"
 		}
 	}
+	for _, word := range []string{"깜짝", "놀라", "앗", "헉", "어?", "어!"} {
+		if strings.Contains(text, word) {
+			return "surprised"
+		}
+	}
 	for _, word := range []string{"왜", "글쎄", "궁금", "이상하", "어라", "정말?", "흥", "삐질"} {
 		if strings.Contains(text, word) {
 			return "doubtful"
@@ -558,6 +563,8 @@ func emotionForText(text string) string {
 
 func reactionForEmotion(emotion string) deviceReaction {
 	switch emotion {
+	case "surprised":
+		return deviceReaction{Yaw: 0, Pitch: 18, Red: 168, Green: 70, Blue: 150, LEDPattern: "sparkle", LEDSpeed: 70 * time.Millisecond}
 	case "happy", "laughing":
 		return deviceReaction{Yaw: 12, Pitch: 14, Red: 168, Green: 40, Blue: 120, LEDPattern: "sparkle", LEDSpeed: 120 * time.Millisecond}
 	case "angry":
@@ -607,6 +614,8 @@ func headGestureSteps(emotion string, reaction deviceReaction, speed int) [][3]i
 	settleSpeed := max(110, speed-25)
 	settle := [3]int{0, 8, settleSpeed}
 	switch emotion {
+	case "surprised":
+		return [][3]int{{-12, 6, accentSpeed}, {12, 18, min(400, accentSpeed+35)}, {-8, 16, accentSpeed}, {6, 11, speed}, settle}
 	case "happy", "laughing":
 		return [][3]int{{-7, 7, speed}, {reaction.Yaw, reaction.Pitch, accentSpeed}, {-5, 12, speed}, settle}
 	case "angry":
@@ -733,11 +742,17 @@ func (s *wsSession) runAutonomousAction(ctx context.Context) {
 	sequence := atomic.AddInt64(&s.autonomousCount, 1)
 	reaction := autonomousReaction(sequence)
 	hasLED := device.hasTool("self.robot.set_led_color")
-	if !hasLED {
+	hasHead := device.hasTool("self.robot.set_head_angles")
+	if !hasLED && !hasHead {
 		return
 	}
-	go s.animateLED(ctx, device, "heartbeat", reaction)
-	g.Log().Infof(ctx, "[AUTONOMY] device=%s heartbeat action=%d led=%t head=false", s.deviceID, sequence, hasLED)
+	if hasHead {
+		go s.animateHeadGesture(ctx, device, "heartbeat", reaction)
+	}
+	if hasLED {
+		go s.animateLED(ctx, device, "heartbeat", reaction)
+	}
+	g.Log().Infof(ctx, "[AUTONOMY] device=%s heartbeat action=%d led=%t head=%t", s.deviceID, sequence, hasLED, hasHead)
 }
 
 func (s *wsSession) alignFaceIfDue(ctx context.Context, trigger string) {

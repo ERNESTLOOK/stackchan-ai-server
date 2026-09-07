@@ -142,14 +142,15 @@ func TestCompatibleServerVADCommitsAfterTrailingSilence(t *testing.T) {
 		serverVAD:   true,
 	}
 	s.observeServerVAD(context.Background(), []int16{2000, -2000})
-	silence := make([]int16, serverSampleRate/10)
-	for i := 0; i < 5; i++ {
-		if s.observeServerVAD(context.Background(), silence) {
-			t.Fatal("committed before 600ms trailing silence")
+	silence := make([]int16, serverSampleRate/20)
+	for i := 0; i < 7; i++ {
+		committed := s.observeServerVAD(context.Background(), silence)
+		if i < 7 && committed {
+			t.Fatal("committed before configured trailing silence")
 		}
 	}
 	if !s.observeServerVAD(context.Background(), silence) {
-		t.Fatal("did not commit after 600ms trailing silence")
+		t.Fatal("did not commit after configured trailing silence")
 	}
 	if p.commits != 1 || s.isListening {
 		t.Fatalf("commits=%d listening=%t, want one commit and stopped listening", p.commits, s.isListening)
