@@ -269,6 +269,27 @@ func TestLEDPatternsReflectEmotionTempo(t *testing.T) {
 	}
 }
 
+func TestSpeechHeadGesturesAreExpressiveAndSafe(t *testing.T) {
+	for _, emotion := range []string{"neutral", "happy", "angry", "sad", "sleepy", "doubtful"} {
+		steps := headGestureSteps(emotion, reactionForEmotion(emotion), 180)
+		if len(steps) < 3 {
+			t.Fatalf("%s gesture is not expressive enough: %#v", emotion, steps)
+		}
+		for _, step := range steps {
+			if step[0] < -45 || step[0] > 45 || step[1] < 0 || step[1] > 45 {
+				t.Fatalf("%s gesture exceeds safe head range: %#v", emotion, step)
+			}
+			if step[2] < 100 || step[2] > 400 {
+				t.Fatalf("%s gesture exceeds safe speed range: %#v", emotion, step)
+			}
+		}
+		last := steps[len(steps)-1]
+		if last[0] != 0 || last[1] != 8 {
+			t.Fatalf("%s gesture does not settle naturally: %#v", emotion, last)
+		}
+	}
+}
+
 func TestAutomaticVisionContextUsesCameraForVisualQuestion(t *testing.T) {
 	var client *deviceMCPClient
 	called := false

@@ -579,10 +579,47 @@ func (s *wsSession) reactToEmotion(ctx context.Context, emotion string) {
 		return
 	}
 	reaction := reactionForEmotion(emotion)
+	headMotion := aiBool(ctx, "stackchan_speech_motion_enabled", false) && device.hasTool("self.robot.set_head_angles")
+	if headMotion {
+		go s.animateHeadGesture(ctx, device, emotion, reaction)
+	}
 	if device.hasTool("self.robot.set_led_color") {
 		go s.animateLED(ctx, device, emotion, reaction)
 	}
-	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s led_only=true", s.deviceID, emotion)
+	g.Log().Infof(ctx, "[REACTION] device=%s emotion=%s speech_motion=%t", s.deviceID, emotion, headMotion)
+}
+
+func (s *wsSession) animateHeadGesture(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) {
+	steps := headGestureSteps(emotion, reaction, communityMotionSpeed(ctx, 180))
+	if _, err := device.callHeadSequence(ctx, steps); err != nil {
+		g.Log().Warningf(ctx, "[REACTION] device=%s head emotion=%s: %v", s.deviceID, emotion, err)
+		return
+	}
+	g.Log().Infof(ctx, "[REACTION] device=%s head emotion=%s steps=%d", s.deviceID, emotion, len(steps))
+}
+
+// headGestureSteps gives speech a short feature-animation-style anticipation,
+// emotional accent, and settle. The deterministic sequence keeps character
+// motion expressive without letting the language model drive raw servos.
+func headGestureSteps(emotion string, reaction deviceReaction, speed int) [][3]int {
+	speed = min(340, max(120, speed))
+	accentSpeed := min(400, speed+55)
+	settleSpeed := max(110, speed-25)
+	settle := [3]int{0, 8, settleSpeed}
+	switch emotion {
+	case "happy", "laughing":
+		return [][3]int{{-7, 7, speed}, {reaction.Yaw, reaction.Pitch, accentSpeed}, {-5, 12, speed}, settle}
+	case "angry":
+		return [][3]int{{8, 10, speed}, {reaction.Yaw, reaction.Pitch, accentSpeed}, {8, 5, speed}, settle}
+	case "sad", "crying":
+		return [][3]int{{-5, 9, settleSpeed}, {4, 3, speed}, {0, 1, settleSpeed}, settle}
+	case "sleepy":
+		return [][3]int{{-4, 6, settleSpeed}, {4, 3, settleSpeed}, settle}
+	case "doubtful":
+		return [][3]int{{7, 7, speed}, {reaction.Yaw, reaction.Pitch, accentSpeed}, {8, 15, speed}, settle}
+	default:
+		return [][3]int{{-4, 7, speed}, {reaction.Yaw + 6, reaction.Pitch + 4, accentSpeed}, settle}
+	}
 }
 
 func (s *wsSession) animateLED(ctx context.Context, device *deviceMCPClient, emotion string, reaction deviceReaction) {

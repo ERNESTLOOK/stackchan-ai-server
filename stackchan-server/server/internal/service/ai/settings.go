@@ -121,7 +121,7 @@ var settingsUIKeys = []string{
 	"audio_prebuffer_ms", "audio_prebuffer_max_wait_ms",
 	"face_contact_enabled", "face_contact_interval_seconds",
 	"autonomous_actions_enabled", "autonomous_action_interval_seconds",
-	"stackchan_motion_speed", "stackchan_motion_step_delay_ms", "stackchan_expression_colors",
+	"stackchan_speech_motion_enabled", "stackchan_motion_speed", "stackchan_motion_step_delay_ms", "stackchan_expression_colors",
 	"background_tasks_enabled", "background_agent_base_url", "background_agent_api_key",
 	"background_agent_model", "background_agent_timeout_seconds", "background_agent_prompt", "system_prompt",
 	"standalone_ha_enabled", "standalone_ha_url", "standalone_ha_token",

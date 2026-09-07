@@ -53,6 +53,8 @@ ai:
   stt_language: "ko"
   stackchan_motion_speed: 180
   stackchan_motion_step_delay_ms: 220
+  # Add one deterministic emotional head gesture when speech begins.
+  stackchan_speech_motion_enabled: false
   stackchan_expression_colors: '{"calm":[45,24,120],"happy":[168,60,130],"thinking":[80,50,168],"shy":[168,70,120],"pouty":[168,20,45],"surprised":[120,90,168],"sad":[20,40,168],"sleepy":[35,20,90]}'
   # Optional direct HA bridge for standalone runtimes; disabled by default.
   standalone_ha_enabled: false
