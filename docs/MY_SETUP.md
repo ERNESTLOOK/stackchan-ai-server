@@ -97,3 +97,4 @@ OpenRouter는 텍스트만 처리하므로 별도로 필요합니다. 가장 간
   - MCP 도구: LLM에는 저수준 서보/LED 대신 `stackchan_see`, `stackchan_face`, `stackchan_move`, `stackchan_nod`, `stackchan_shake`, `stackchan_status`, `stackchan_health` 같은 고수준 행동만 노출.
   - 카메라: "카메라", "사진", "촬영", "찍어", "봐줘"처럼 명시적인 시각 요청이 있을 때만 사용.
   - 말투: 교수님 호칭, 자연스러운 한국어, 보통 1-2문장, 확인하지 못한 사실은 추측하지 않기.
+  - 커스터마이징: `stackchan_motion_speed`, `stackchan_motion_step_delay_ms`, `stackchan_expression_colors`로 동작 속도와 표정별 LED 색을 조정.

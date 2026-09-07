@@ -123,7 +123,7 @@ func settingsUpdateError(values map[string]string) string {
 			return key + " must be true or false"
 		}
 		switch key {
-		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds", "face_contact_interval_seconds", "autonomous_action_interval_seconds":
+		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds", "face_contact_interval_seconds", "autonomous_action_interval_seconds", "stackchan_motion_speed", "stackchan_motion_step_delay_ms":
 			lower, upper := 0, 300
 			if key == "conversation_history_days" {
 				lower, upper = 1, 3650
@@ -137,6 +137,12 @@ func settingsUpdateError(values map[string]string) string {
 			if key == "autonomous_action_interval_seconds" {
 				lower, upper = 5, 300
 			}
+			if key == "stackchan_motion_speed" {
+				lower, upper = 100, 400
+			}
+			if key == "stackchan_motion_step_delay_ms" {
+				lower, upper = 50, 1000
+			}
 			n, err := strconv.Atoi(value)
 			if err != nil || n < lower || n > upper {
 				return key + " is outside the supported range"
@@ -149,6 +155,22 @@ func settingsUpdateError(values map[string]string) string {
 			profiles := map[string]deviceProfile{}
 			if err := json.Unmarshal([]byte(value), &profiles); err != nil {
 				return "device_profiles must be valid JSON"
+			}
+		}
+		if key == "stackchan_expression_colors" && strings.TrimSpace(value) != "" {
+			colors := map[string][]int{}
+			if err := json.Unmarshal([]byte(value), &colors); err != nil {
+				return "stackchan_expression_colors must be valid JSON"
+			}
+			for _, rgb := range colors {
+				if len(rgb) != 3 {
+					return "stackchan_expression_colors values must be RGB arrays"
+				}
+				for _, channel := range rgb {
+					if channel < 0 || channel > 168 {
+						return "stackchan_expression_colors channels must be between 0 and 168"
+					}
+				}
 			}
 		}
 	}

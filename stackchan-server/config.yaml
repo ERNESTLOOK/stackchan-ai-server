@@ -54,6 +54,9 @@ options:
   tts_voice: ""
   audio_prebuffer_ms: 300
   audio_prebuffer_max_wait_ms: 900
+  stackchan_motion_speed: 180
+  stackchan_motion_step_delay_ms: 220
+  stackchan_expression_colors: '{"calm":[45,24,120],"happy":[168,60,130],"thinking":[80,50,168],"shy":[168,70,120],"pouty":[168,20,45],"surprised":[120,90,168],"sad":[20,40,168],"sleepy":[35,20,90]}'
   background_tasks_enabled: false
   background_agent_base_url: "https://api.openai.com"
   background_agent_api_key: ""
@@ -96,6 +99,9 @@ schema:
   tts_voice: str?
   audio_prebuffer_ms: list(0|120|180|240|300|360|480|600)
   audio_prebuffer_max_wait_ms: list(300|500|700|900|1200|1500)
+  stackchan_motion_speed: int(100,400)
+  stackchan_motion_step_delay_ms: int(50,1000)
+  stackchan_expression_colors: str?
   background_tasks_enabled: bool
   background_agent_base_url: str?
   background_agent_api_key: str?

@@ -339,12 +339,14 @@ func (c *deviceMCPClient) callCommunityTool(ctx context.Context, name string, ar
 	case "stackchan_move":
 		yaw := int(clampFloat(numberArg(arguments, "yaw", 0), -20, 20))
 		pitch := int(clampFloat(numberArg(arguments, "pitch", 8), 5, 20))
-		speed := int(clampFloat(numberArg(arguments, "speed", 160), 100, 400))
+		speed := int(clampFloat(numberArg(arguments, "speed", float64(communityMotionSpeed(ctx, 160))), 100, 400))
 		return c.callHead(ctx, yaw, pitch, speed)
 	case "stackchan_nod":
-		return c.callHeadSequence(ctx, [][3]int{{0, 16, 180}, {0, 6, 180}, {0, 14, 180}, {0, 8, 160}})
+		speed := communityMotionSpeed(ctx, 180)
+		return c.callHeadSequence(ctx, [][3]int{{0, 16, speed}, {0, 6, speed}, {0, 14, speed}, {0, 8, communityMotionSpeed(ctx, 160)}})
 	case "stackchan_shake":
-		return c.callHeadSequence(ctx, [][3]int{{-14, 8, 190}, {14, 8, 190}, {-10, 8, 180}, {0, 8, 160}})
+		speed := communityMotionSpeed(ctx, 190)
+		return c.callHeadSequence(ctx, [][3]int{{-14, 8, speed}, {14, 8, speed}, {-10, 8, communityMotionSpeed(ctx, 180)}, {0, 8, communityMotionSpeed(ctx, 160)}})
 	case "stackchan_face":
 		expression := normalizeCommunityExpression(stringArg(arguments, "expression"))
 		return c.callExpression(ctx, expression)
@@ -371,7 +373,7 @@ func (c *deviceMCPClient) callHeadSequence(ctx context.Context, steps [][3]int) 
 		if _, err := c.callHead(ctx, step[0], step[1], step[2]); err != nil {
 			return "", err
 		}
-		timer := time.NewTimer(220 * time.Millisecond)
+		timer := time.NewTimer(communityMotionStepDelay(ctx))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -392,7 +394,7 @@ func (c *deviceMCPClient) callExpression(ctx context.Context, expression string)
 		return result, nil
 	}
 	if c.hasTool("self.robot.set_led_color") {
-		color := communityExpressionColor(expression)
+		color := communityExpressionColor(ctx, expression)
 		return c.callTool(ctx, "self.robot.set_led_color", map[string]any{"red": color[0], "green": color[1], "blue": color[2]})
 	}
 	return "", fmt.Errorf("expression tool is unavailable")
@@ -455,7 +457,36 @@ func normalizeCommunityExpression(value string) string {
 	}
 }
 
-func communityExpressionColor(expression string) [3]int {
+func communityMotionSpeed(ctx context.Context, fallback int) int {
+	return int(clampFloat(float64(aiInt(ctx, "stackchan_motion_speed", fallback)), 100, 400))
+}
+
+func communityMotionStepDelay(ctx context.Context) time.Duration {
+	return time.Duration(clampFloat(float64(aiInt(ctx, "stackchan_motion_step_delay_ms", 220)), 50, 1000)) * time.Millisecond
+}
+
+func communityExpressionColor(ctx context.Context, expression string) [3]int {
+	defaultColor := defaultCommunityExpressionColor(expression)
+	raw := strings.TrimSpace(aiString(ctx, "stackchan_expression_colors", ""))
+	if raw == "" {
+		return defaultColor
+	}
+	colors := map[string][]int{}
+	if json.Unmarshal([]byte(raw), &colors) != nil {
+		return defaultColor
+	}
+	color, ok := colors[expression]
+	if !ok || len(color) != 3 {
+		return defaultColor
+	}
+	return [3]int{
+		int(clampFloat(float64(color[0]), 0, 168)),
+		int(clampFloat(float64(color[1]), 0, 168)),
+		int(clampFloat(float64(color[2]), 0, 168)),
+	}
+}
+
+func defaultCommunityExpressionColor(expression string) [3]int {
 	switch expression {
 	case "happy":
 		return [3]int{168, 60, 130}

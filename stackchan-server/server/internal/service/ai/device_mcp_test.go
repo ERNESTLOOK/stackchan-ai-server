@@ -10,6 +10,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/os/gcfg"
 )
 
 func TestDeviceMCPInitializeListsAndCallsTools(t *testing.T) {
@@ -164,6 +167,24 @@ func TestCommunityFaceFallsBackToLED(t *testing.T) {
 	}
 	if numberArg(gotArgs, "red", 0) != 168 || numberArg(gotArgs, "green", 0) != 20 || numberArg(gotArgs, "blue", 0) != 45 {
 		t.Fatalf("unexpected pouty LED color: %#v", gotArgs)
+	}
+}
+
+func TestCommunityExpressionColorCanBeConfigured(t *testing.T) {
+	t.Setenv("STACKCHAN_DATA_DIR", t.TempDir())
+	adapter, err := gcfg.NewAdapterContent(`{"ai":{"stackchan_expression_colors":"{\"happy\":[1,2,3]}"}}`)
+	if err != nil {
+		t.Fatalf("gcfg.NewAdapterContent() error = %v", err)
+	}
+	previousAdapter := g.Cfg().GetAdapter()
+	g.Cfg().SetAdapter(adapter)
+	t.Cleanup(func() { g.Cfg().SetAdapter(previousAdapter) })
+
+	if color := communityExpressionColor(context.Background(), "happy"); color != [3]int{1, 2, 3} {
+		t.Fatalf("configured color = %#v", color)
+	}
+	if color := communityExpressionColor(context.Background(), "pouty"); color != [3]int{168, 20, 45} {
+		t.Fatalf("default color = %#v", color)
 	}
 }
 

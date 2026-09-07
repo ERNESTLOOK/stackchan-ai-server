@@ -287,3 +287,32 @@ func TestConfigUIRejectsInvalidDeviceProfiles(t *testing.T) {
 		t.Fatalf("invalid device profiles were persisted: %#v", values)
 	}
 }
+
+func TestConfigUIRejectsInvalidStackChanExpressionColors(t *testing.T) {
+	t.Setenv("STACKCHAN_DATA_DIR", t.TempDir())
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"invalid_json", `{"stackchan_expression_colors":"{invalid"}`, "stackchan_expression_colors must be valid JSON"},
+		{"not_rgb", `{"stackchan_expression_colors":"{\"happy\":[1,2]}"}`, "stackchan_expression_colors values must be RGB arrays"},
+		{"out_of_range", `{"stackchan_expression_colors":"{\"happy\":[1,2,255]}"}`, "stackchan_expression_colors channels must be between 0 and 168"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			configUIHandler().ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("PUT status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+			if !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("response = %q, want %q", response.Body.String(), test.want)
+			}
+			if values := readSettings(); len(values) != 0 {
+				t.Fatalf("invalid expression colors were persisted: %#v", values)
+			}
+		})
+	}
+}
