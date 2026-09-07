@@ -31,7 +31,7 @@ func TestConversationHistorySurvivesReconnectAndIsolatesDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	memory, err := conversationContext(ctx, "device-one")
-	if err != nil || !strings.Contains(memory, "团团") || !strings.Contains(memory, "first-session") {
+	if err != nil || !strings.Contains(memory, "Persistent conversation memory") || !strings.Contains(memory, "团团") || !strings.Contains(memory, "first-session") {
 		t.Fatalf("context not restored: %v %q", err, memory)
 	}
 	other, err := conversationContext(ctx, "device-two")
@@ -185,12 +185,25 @@ func TestConversationHistoryAPIAuthExportAndClear(t *testing.T) {
 }
 
 func TestConversationSettingsRejectInvalidRanges(t *testing.T) {
-	for key, value := range map[string]string{"conversation_idle_seconds": "-1", "conversation_history_days": "0", "conversation_context_messages": "101", "conversation_history_enabled": "yes"} {
+	for key, value := range map[string]string{
+		"conversation_idle_seconds":          "-1",
+		"conversation_history_days":          "0",
+		"conversation_context_messages":      "101",
+		"conversation_history_enabled":       "yes",
+		"face_contact_enabled":               "yes",
+		"face_contact_interval_seconds":      "9",
+		"face_contact_interval_seconds_hi":   "3601",
+		"autonomous_actions_enabled":         "yes",
+		"autonomous_action_interval_seconds": "4",
+	} {
+		if key == "face_contact_interval_seconds_hi" {
+			key = "face_contact_interval_seconds"
+		}
 		if settingsUpdateError(map[string]string{key: value}) == "" {
 			t.Errorf("accepted invalid %s", key)
 		}
 	}
-	if settingsUpdateError(map[string]string{"conversation_idle_seconds": "0", "conversation_context_messages": "0"}) != "" {
+	if settingsUpdateError(map[string]string{"conversation_idle_seconds": "0", "conversation_context_messages": "0", "face_contact_interval_seconds": "45", "face_contact_enabled": "true", "autonomous_actions_enabled": "true", "autonomous_action_interval_seconds": "18"}) != "" {
 		t.Fatal("zero should disable timeout or context")
 	}
 }

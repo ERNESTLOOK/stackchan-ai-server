@@ -52,6 +52,9 @@ var (
 			s.BindHandler("/xiaozhi/ws", func(r *ghttp.Request) {
 				ai.HandleWS(r.Response.Writer, r.Request)
 			})
+			s.BindHandler("/xiaozhi/vision/explain", func(r *ghttp.Request) {
+				ai.HandleVision(r.Response.Writer, r.Request)
+			})
 
 			// heartBeat
 			boot.InitCron()

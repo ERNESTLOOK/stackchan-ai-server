@@ -111,6 +111,14 @@ type RealtimeSession interface {
 	Close()
 }
 
+// ServerVADRequired marks HTTP-style providers that cannot detect the end of
+// an utterance themselves. The stock Xiaozhi firmware starts an audio stream
+// but does not always send listen:stop, so wsSession must commit after trailing
+// silence for these providers.
+type ServerVADRequired interface {
+	RequiresServerVAD() bool
+}
+
 // PlaybackStateAware lets a provider postpone asynchronous announcements
 // until the device has physically drained its audio queue.
 type PlaybackStateAware interface {
@@ -148,6 +156,7 @@ func dialProvider(
 	p := deviceProfileFor(ctx, deviceID)
 	provider := override(p.Provider, configuredProvider(ctx))
 	sysPrompt := override(p.SystemPrompt, globalSystemPrompt(ctx))
+	sysPrompt += deviceCapabilityPrompt()
 	if memory, err := conversationContext(ctx, deviceID); err == nil {
 		sysPrompt += memory
 	} else {
@@ -181,6 +190,14 @@ func dialProvider(
 	}
 }
 
+func deviceCapabilityPrompt() string {
+	return "\n\nDevice capability rules:\n" +
+		"- If device tools are available and the user asks what you can see, asks about the camera, asks about an object/person/finger/location in front of you, or asks you to look, call the camera tool before answering.\n" +
+		"- If device tools are available and the user asks you to move, look left/right/up, nod, shake your head, change speaker volume, change brightness, or use your onboard LED, call the matching device tool.\n" +
+		"- Do not say the camera, movement, sensors, speaker, screen, or LED are unavailable unless the matching tool call actually fails or no matching tool exists.\n" +
+		"- Keep physical reactions small and safe unless the user explicitly asks for a larger movement."
+}
+
 func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, sysPrompt string) compatibleConfig {
 	compatibleBaseURL := aiString(ctx, "compatible_base_url", "")
 	compatibleAPIKey := aiString(ctx, "compatible_api_key", "")
@@ -206,17 +223,21 @@ func compatibleConfigFor(ctx context.Context, profile deviceProfile, provider, s
 	llmModel := override(profile.CompatibleModel, override(aiString(ctx, "llm_model", ""), aiString(ctx, "compatible_model", "")))
 	ttsModel := override(profile.CompatibleTTSModel, override(aiString(ctx, "tts_model", ""), aiString(ctx, "compatible_tts_model", "tts-1")))
 	voice := override(profile.CompatibleTTSVoice, override(aiString(ctx, "tts_voice", ""), aiString(ctx, "compatible_tts_voice", "alloy")))
+	ttsInstructions := aiString(ctx, "tts_instructions", "")
+	ttsVolumeGain := min(5.0, max(0.1, aiFloat(ctx, "tts_volume_gain", 1.0)))
 	return compatibleConfig{
-		STTBaseURL: sttBaseURL,
-		STTAPIKey:  sttAPIKey,
-		STTModel:   sttModel,
-		LLMBaseURL: llmBaseURL,
-		LLMAPIKey:  llmAPIKey,
-		LLMModel:   llmModel,
-		TTSBaseURL: ttsBaseURL,
-		TTSAPIKey:  ttsAPIKey,
-		TTSModel:   ttsModel,
-		Voice:      voice,
-		Prompt:     sysPrompt,
+		STTBaseURL:      sttBaseURL,
+		STTAPIKey:       sttAPIKey,
+		STTModel:        sttModel,
+		LLMBaseURL:      llmBaseURL,
+		LLMAPIKey:       llmAPIKey,
+		LLMModel:        llmModel,
+		TTSBaseURL:      ttsBaseURL,
+		TTSAPIKey:       ttsAPIKey,
+		TTSModel:        ttsModel,
+		Voice:           voice,
+		TTSInstructions: ttsInstructions,
+		TTSVolumeGain:   ttsVolumeGain,
+		Prompt:          sysPrompt,
 	}
 }

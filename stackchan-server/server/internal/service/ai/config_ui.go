@@ -119,11 +119,11 @@ func settingsUpdateError(values map[string]string) string {
 		if !isSettingsUIKey(key) {
 			return "unsupported setting"
 		}
-		if key == "conversation_history_enabled" && value != "true" && value != "false" {
-			return "conversation_history_enabled must be true or false"
+		if (key == "conversation_history_enabled" || key == "face_contact_enabled" || key == "autonomous_actions_enabled") && value != "true" && value != "false" {
+			return key + " must be true or false"
 		}
 		switch key {
-		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds":
+		case "conversation_history_days", "conversation_context_messages", "conversation_idle_seconds", "face_contact_interval_seconds", "autonomous_action_interval_seconds":
 			lower, upper := 0, 300
 			if key == "conversation_history_days" {
 				lower, upper = 1, 3650
@@ -131,9 +131,15 @@ func settingsUpdateError(values map[string]string) string {
 			if key == "conversation_context_messages" {
 				upper = 100
 			}
+			if key == "face_contact_interval_seconds" {
+				lower, upper = 10, 3600
+			}
+			if key == "autonomous_action_interval_seconds" {
+				lower, upper = 5, 300
+			}
 			n, err := strconv.Atoi(value)
 			if err != nil || n < lower || n > upper {
-				return "conversation setting is outside the supported range"
+				return key + " is outside the supported range"
 			}
 		}
 		if key == "provider" && !isSupportedProvider(value) {

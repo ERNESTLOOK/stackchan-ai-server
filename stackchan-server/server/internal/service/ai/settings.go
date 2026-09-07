@@ -89,6 +89,15 @@ func aiInt(ctx context.Context, key string, fallback int) int {
 	return g.Cfg().MustGet(ctx, "ai."+key, fallback).Int()
 }
 
+func aiFloat(ctx context.Context, key string, fallback float64) float64 {
+	if value := readSettings()[key]; value != "" {
+		if n, err := strconv.ParseFloat(value, 64); err == nil {
+			return n
+		}
+	}
+	return g.Cfg().MustGet(ctx, "ai."+key, fallback).Float64()
+}
+
 func aiBool(ctx context.Context, key string, fallback bool) bool {
 	// Runtime mode is owned by the add-on/container configuration. A stale
 	// value from an older GUI version must never turn standalone back into HA.
@@ -108,8 +117,10 @@ var settingsUIKeys = []string{
 	"tokenhub_base_url", "tokenhub_api_key", "openrouter_api_key", "openrouter_base_url",
 	"compatible_base_url", "compatible_api_key", "compatible_model", "compatible_stt_model", "compatible_tts_model", "compatible_tts_voice",
 	"stt_base_url", "stt_api_key", "stt_model", "llm_base_url", "llm_api_key", "llm_model",
-	"tts_base_url", "tts_api_key", "tts_model", "tts_voice", "device_profiles",
+	"tts_base_url", "tts_api_key", "tts_model", "tts_voice", "tts_instructions", "tts_volume_gain", "device_profiles",
 	"audio_prebuffer_ms", "audio_prebuffer_max_wait_ms",
+	"face_contact_enabled", "face_contact_interval_seconds",
+	"autonomous_actions_enabled", "autonomous_action_interval_seconds",
 	"background_tasks_enabled", "background_agent_base_url", "background_agent_api_key",
 	"background_agent_model", "background_agent_timeout_seconds", "background_agent_prompt", "system_prompt",
 	"standalone_ha_enabled", "standalone_ha_url", "standalone_ha_token",

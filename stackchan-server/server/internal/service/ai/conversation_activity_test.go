@@ -114,6 +114,47 @@ func (idleTestProvider) CommitAudio() error        { return nil }
 func (idleTestProvider) CancelResponse() error     { return nil }
 func (idleTestProvider) Close()                    {}
 
+type commitCountingProvider struct{ commits int }
+
+func (p *commitCountingProvider) AppendAudio([]int16) error { return nil }
+func (p *commitCountingProvider) CommitAudio() error        { p.commits++; return nil }
+func (p *commitCountingProvider) CancelResponse() error     { return nil }
+func (p *commitCountingProvider) Close()                    {}
+
+func TestCompatibleServerVADCommitsAfterTrailingSilence(t *testing.T) {
+	p := &commitCountingProvider{}
+	s := &wsSession{
+		rt:          p,
+		activity:    newConversationActivity(0, time.Now()),
+		isListening: true,
+		serverVAD:   true,
+	}
+	s.observeServerVAD(context.Background(), []int16{2000, -2000})
+	silence := make([]int16, serverSampleRate/10)
+	for i := 0; i < 5; i++ {
+		if s.observeServerVAD(context.Background(), silence) {
+			t.Fatal("committed before 600ms trailing silence")
+		}
+	}
+	if !s.observeServerVAD(context.Background(), silence) {
+		t.Fatal("did not commit after 600ms trailing silence")
+	}
+	if p.commits != 1 || s.isListening {
+		t.Fatalf("commits=%d listening=%t, want one commit and stopped listening", p.commits, s.isListening)
+	}
+}
+
+func TestApplyPCMVolumeClampsThreeTimesGain(t *testing.T) {
+	pcm := []int16{1000, -1000, 20000, -20000, 0}
+	applyPCMVolume(pcm, 3)
+	want := []int16{3000, -3000, 32767, -32768, 0}
+	for i := range want {
+		if pcm[i] != want[i] {
+			t.Fatalf("pcm[%d]=%d, want %d", i, pcm[i], want[i])
+		}
+	}
+}
+
 func TestConversationIdleClosesDeviceAudioChannel(t *testing.T) {
 	done := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

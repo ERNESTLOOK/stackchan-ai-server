@@ -498,8 +498,8 @@ func (cfg backgroundAgentConfig) runner() backgroundTaskRunner {
 			return "", fmt.Errorf("后台 Agent 连接 Home Assistant 失败: %w", err)
 		}
 		defer ha.Close()
-		client := newOpenAIClient(cfg.BaseURL, cfg.APIKey, cfg.Model, "", "", "", cfg.Prompt)
-		return client.Chat(runCtx, []chatMessage{{Role: "user", Content: objective}}, ha)
+		client := newOpenAIClient(cfg.BaseURL, cfg.APIKey, cfg.Model, "", "", "", "", cfg.Prompt)
+		return client.Chat(runCtx, []chatMessage{{Role: "user", Content: objective}}, ha, nil)
 	}
 }
 
